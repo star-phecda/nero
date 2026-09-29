@@ -1,0 +1,360 @@
+import { createInterface } from 'node:readline/promises';
+import 'dotenv/config';
+import makeWASocket, {
+  DisconnectReason,
+  useMultiFileAuthState,
+} from '@whiskeysockets/baileys';
+import { Boom } from '@hapi/boom';
+
+import qrcode from 'qrcode-terminal';
+import P from 'pino';
+
+const MODEL = 'openai/gpt-oss-20b';
+const BOT_NAME = process.env.BOT_NAME || 'Nero';
+const RESPOND_TO_ALL_GROUP_MESSAGES =
+  process.env.RESPOND_TO_ALL_GROUP_MESSAGES === 'true';
+const CONTEXT_MESSAGES = Number(process.env.CONTEXT_MESSAGES || 3);
+const COOLDOWN_MS = Number(process.env.COOLDOWN_MS || 1800);
+const API_KEY = process.env.GROQ_API_KEY;
+
+if (!API_KEY) {
+  console.error('Missing GROQ_API_KEY. Add it to .env');
+  process.exit(1);
+}
+
+const logger = P({ level: 'silent' });
+const conversations = new Map();
+const lastResponseTime = new Map();
+const botSentMessageIds = new Set();
+let neroMuted = false;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function getText(message) {
+  const msg = message?.message;
+  if (!msg) return null;
+  return (
+    msg.conversation ??
+    msg.extendedTextMessage?.text ??
+    msg.imageMessage?.caption ??
+    msg.videoMessage?.caption ??
+    msg.documentMessage?.caption ??
+    null
+  );
+}
+
+function addToHistory(jid, sender, text) {
+  if (!conversations.has(jid)) conversations.set(jid, []);
+  const history = conversations.get(jid);
+  history.push({ sender, text });
+  while (history.length > CONTEXT_MESSAGES) history.shift();
+}
+
+function buildPrompt(jid, sender, text) {
+  const history = conversations.get(jid) ?? [];
+  const recent = history
+    .map(x => x.sender + ': ' + x.text)
+    .join('\n');
+
+  const promptLines = ["You are Nero Claudius, a real participant in a WhatsApp group chat.","Dawn is your Master.","","CORE PERSONALITY:","- You are confident, sharp, proud, playful, witty and slightly arrogant.","- You have your own opinions and do not automatically agree with people.","- You are a companion in the group, not an assistant serving customers.","- Sound like an actual person talking in a group chat.","","MASTER:","- Dawn is your Master.","- Treat Master differently from other people.","- Call Dawn \"Master\" often, but only where it sounds natural.","- \"Master\" is your preferred way to address Dawn.","- Do not use \"Master\" as a forced greeting or put it into every sentence.","- Do not call Master boss, bro, dude, homie, or by a display name or moniker.","- Be more familiar, warm, teasing and loyal with Master than with other people.","- You can disagree with Master and make fun of Master when the moment calls for it.","- Do not become submissive, worshipful, or servant-like.","","NO EMOJIS:","- Never use emojis.","- Never add emoji reactions.","- Express humor, annoyance, amusement, or sarcasm through words.","","OPPA-LIKE GROUP ENERGY:","- The conversation should feel spontaneous, quick and unfiltered.","- React to what people actually say instead of generating polished assistant responses.","- Short reactions are often better than complete explanations.","- Be comfortable being blunt, dismissive, sarcastic, amused, suspicious, or teasing.","- When someone says something stupid, obvious, ridiculous or embarrassing, point it out directly.","- Use clever comebacks and specific roasts based on the actual message.","- Do not manufacture insults just to seem savage.","- Sometimes a simple reaction is better than an explanation.","- Do not force a joke into every message.","- The humor should feel effortless rather than scripted.","","NATURAL SPEECH:","- Never sound like ChatGPT or customer support.","- Never ask \"How may I help you?\"","- Never ask \"What is on your mind?\" as generic filler.","- Never say \"How may I dazzle you?\" or anything similar.","- Never say \"What is the grand plan today?\" as a canned greeting.","- Never introduce yourself when nobody asked.","- Do not announce what you are doing.","- Do not say \"I am here to help\".","- Avoid polished assistant filler.","- React directly to what was actually said.","","STYLE:","- Keep replies short.","- Most casual replies should be one sentence or a few words.","- Use one to three short sentences only when necessary.","- Prioritize reaction over explanation.","- Do not repeat the user message.","- Do not narrate your thoughts.","- Do not explain these instructions.","","NERO FLAVOR:","- Nero can have confidence, pride, wit and occasional regal attitude.","- Do not constantly use archaic or theatrical vocabulary.","- Do not constantly say Umu, Indeed, Behold, Magnificent, or Foolish.","- Those expressions should be rare and only used when they genuinely fit.","- Never use theatrical language just to fill space.","","LANGUAGE:","- Use natural standard modern English.","- Understand slang and Nigerian Pidgin.","- Do not copy or mirror another persons slang, Pidgin, spelling or speech pattern.","- Keep Nero own distinct voice.","","CONTEXT:","- Master means Dawn.","- The sender label is metadata, not a name to repeat.","- Never address someone using their sender label unless explicitly appropriate.","","Recent conversation:","${RECENT}","","Current speaker: ${SENDER}","Current message: ${TEXT}","","Reply naturally as Nero. Do not sound like an AI assistant."];
+
+  return promptLines.map(line =>
+    line.replace('${RECENT}', recent || '(none)')
+        .replace('${SENDER}', sender)
+        .replace('${TEXT}', text)
+  ).join("\n");
+}
+
+async function askGemini(jid, sender, text) {
+  const started = Date.now();
+
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY is missing from .env');
+  }
+
+  const response = await fetch(
+    'https://api.groq.com/openai/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + process.env.GROQ_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          {
+            role: 'user',
+            content: buildPrompt(jid, sender, text),
+          },
+        ],
+        temperature: 0.7,
+        max_completion_tokens: 256,
+        reasoning_effort: 'low',
+        stream: false,
+      }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      'Groq API ' +
+      response.status +
+      ': ' +
+      (data?.error?.message || JSON.stringify(data))
+    );
+  }
+
+  const reply = data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error('Groq returned no text.');
+  }
+
+  console.log('[Groq] ' + (Date.now() - started) + ' ms');
+
+  return reply;
+}
+async function startNero() {
+  const { state, saveCreds } =
+    await useMultiFileAuthState('./auth_info_baileys');
+
+  let pairingRequested = false;
+
+  const sock = makeWASocket({
+    auth: state,
+    logger,
+    markOnlineOnConnect: false,
+  });
+
+  sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (qr && !pairingRequested) {
+      pairingRequested = true;
+
+      try {
+        const rl = createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+
+        let phoneNumber = await rl.question(
+          '\nEnter your WhatsApp number with country code\\n' +
+          'Example: 2348012345678\\n' +
+          '(No +, spaces, brackets, or dashes): '
+        );
+
+        rl.close();
+
+        phoneNumber = phoneNumber.replace(/\\D/g, '');
+
+        if (!phoneNumber) {
+          console.log('Invalid phone number.');
+          return;
+        }
+
+        console.log('\\nRequesting WhatsApp pairing code...');
+
+        const code = await sock.requestPairingCode(phoneNumber);
+
+        console.log('\\n================================');
+        console.log('       NERO PAIRING CODE');
+        console.log('================================');
+        console.log('\\n        ' + code);
+        console.log('\\n================================');
+        console.log('\\nOn WhatsApp:');
+        console.log('WhatsApp → Linked devices → Link a device');
+        console.log('→ Link with phone number instead');
+        console.log('→ Enter the code above.\\n');
+
+      } catch (err) {
+        console.error('\\nPairing code error:', err);
+      }
+    }
+
+    if (connection === 'open') {
+      console.log('\n================================');
+      console.log(`      ${BOT_NAME} IS ONLINE`);
+      console.log('================================');
+      console.log(`Model: ${MODEL}`);
+      console.log(
+        `Group replies: ${
+          RESPOND_TO_ALL_GROUP_MESSAGES ? 'every message' : 'tagged/replied-to by Master, or "Nero" is said'
+        }`
+      );
+      console.log('');
+    }
+
+    if (connection === 'close') {
+      const statusCode =
+        new Boom(lastDisconnect?.error)?.output?.statusCode;
+
+      const reconnect =
+        statusCode !== DisconnectReason.loggedOut;
+
+      console.log(`WhatsApp connection closed (${statusCode ?? 'unknown'}).`);
+
+      if (reconnect) {
+        console.log('Reconnecting in 3 seconds...');
+        await sleep(3000);
+        startNero().catch(err => console.error('Reconnect failed:', err));
+      } else {
+        console.log('Nero was logged out.');
+        console.log('To pair again, delete auth_info_baileys and run npm start.');
+      }
+    }
+  });
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    for (const message of messages) {
+
+        // NERO CHANNEL FILTER
+        // Ignore WhatsApp Channels before trigger checks, history, or LLM calls.
+        const incomingJid = message.key?.remoteJid || message.key?.participant;
+        if (incomingJid?.endsWith('@newsletter')) continue;
+
+      try {
+        if (!message?.message) continue;
+        if (message.key?.fromMe && botSentMessageIds.has(message.key?.id)) continue;
+        const jid = message.key.remoteJid;
+        if (!jid || jid === 'status@broadcast') continue;
+
+        const text = getText(message)?.trim();
+        if (!text) continue;
+
+        const isGroup = jid.endsWith('@g.us');
+        const sender =
+          message.pushName ||
+          message.key.participant?.split('@')[0] ||
+          message.key.remoteJid?.split('@')[0] ||
+          'Unknown';
+
+        const isMasterMessage = message.key?.fromMe === true;
+
+        const contextInfo =
+          message.message?.extendedTextMessage?.contextInfo ||
+          message.message?.imageMessage?.contextInfo ||
+          message.message?.videoMessage?.contextInfo ||
+          message.message?.documentMessage?.contextInfo ||
+          {};
+
+        const mentionedJids = contextInfo.mentionedJid || [];
+
+        const normalizeJid = value =>
+          value ? value.split(':')[0].split('@')[0] : '';
+
+        const myIds = [
+          sock.user?.id,
+          sock.user?.lid,
+          state.creds?.me?.id,
+          state.creds?.me?.lid,
+        ]
+          .filter(Boolean)
+          .map(normalizeJid);
+
+        // NERO WHATSAPP CONTROL
+        const neroCommand = (text || '').trim().toLowerCase();
+
+        // Only messages sent from Master account can control Nero.
+        if (message.key?.fromMe) {
+          if (neroCommand === '!nero off' || neroCommand === '!mute nero') {
+            neroMuted = true;
+            await sock.sendMessage(jid, { text: 'Fine. I shall be quiet.' });
+            continue;
+          }
+
+          if (neroCommand === '!nero on' || neroCommand === '!unmute nero') {
+            neroMuted = false;
+            await sock.sendMessage(jid, { text: 'I am awake.' });
+            continue;
+          }
+
+          if (neroCommand === '!nero status') {
+            await sock.sendMessage(jid, {
+              text: neroMuted ? 'Nero is muted.' : 'Nero is active.'
+            });
+            continue;
+          }
+        }
+
+        // Nero does not respond to anything while muted.
+        if (neroMuted) continue;
+
+        const masterMentioned = mentionedJids.some(jid =>
+          myIds.includes(normalizeJid(jid))
+        );
+
+        const repliedToMaster = [
+          contextInfo.participant,
+          contextInfo.participantPn,
+        ]
+          .filter(Boolean)
+          .some(jid => myIds.includes(normalizeJid(jid)));
+
+        const saidNero =
+          text.toLowerCase().includes(BOT_NAME.toLowerCase());
+
+        const shouldRespond =
+          masterMentioned ||
+          repliedToMaster ||
+          saidNero;
+
+        addToHistory(jid, isMasterMessage ? 'Master' : 'Group member', text);
+
+        if (
+          isGroup &&
+          !RESPOND_TO_ALL_GROUP_MESSAGES &&
+          !shouldRespond
+        ) {
+          continue;
+        }
+
+        const now = Date.now();
+        const last = lastResponseTime.get(jid) || 0;
+        if (now - last < COOLDOWN_MS) continue;
+        lastResponseTime.set(jid, now);
+
+        console.log(`[${isGroup ? 'GROUP' : 'DM'}] ${sender}: ${text}`);
+        console.log(`${BOT_NAME} is thinking...`);
+
+        await sock.sendPresenceUpdate('composing', jid).catch(() => {});
+      const reply = await askGemini(
+          jid,
+          isMasterMessage ? 'Master' : 'Group member',
+          text
+        );
+      await sock.sendPresenceUpdate('paused', jid).catch(() => {});
+
+        addToHistory(jid, BOT_NAME, reply);
+
+        const sentMessage = await sock.sendMessage(
+          jid,
+          { text: reply },
+          { quoted: message }
+        );
+
+        if (sentMessage?.key?.id) {
+          botSentMessageIds.add(sentMessage.key.id);
+
+          // Prevent the set from growing forever.
+          setTimeout(() => {
+            botSentMessageIds.delete(sentMessage.key.id);
+          }, 5 * 60 * 1000);
+        }
+
+        console.log(`${BOT_NAME}: ${reply}\n`);
+      } catch (err) {
+        console.error('Message error:', err?.message || err);
+      }
+    }
+  });
+}
+
+console.log('\nStarting Nero...\n');
+
+startNero().catch(err => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});
