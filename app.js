@@ -2328,7 +2328,9 @@ async function startNero() {
       }
     }
   });
-  sock.ev.on('messages.upsert', async ({ messages }) => {
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    // Never process historical/offline history as new messages.
+    if (type !== 'notify') return;
     for (const message of messages) {
 
         // NERO CHANNEL FILTER
