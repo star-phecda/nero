@@ -28,6 +28,8 @@ if (!API_KEY) {
 const logger = P({ level: 'silent' });
 const conversations = new Map();
 const lastResponseTime = new Map();
+const processedMessageIds = new Set();
+let neroConnectionStartTime = 0;
 const botSentMessageIds = new Set();
 
 // NERO LONG-TERM MEMORY
@@ -2239,6 +2241,7 @@ async function askGemini(sock, jid, sender, text) {
   return reply;
 }
 async function startNero() {
+  neroConnectionStartTime = Math.floor(Date.now() / 1000);
   const { state, saveCreds } =
     await useMultiFileAuthState('./auth_info_baileys');
 
@@ -2329,9 +2332,29 @@ async function startNero() {
     }
   });
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    // Never process historical/offline history as new messages.
-    if (type !== 'notify') return;
     for (const message of messages) {
+        const messageId = message.key?.id;
+        const messageTimestamp = Number(message.messageTimestamp || 0);
+
+        // Ignore genuinely old history, but allow recent append messages
+        // because WhatsApp can deliver fresh messages this way after reconnect.
+        const recentAppend =
+          type === 'append' &&
+          messageTimestamp > 0 &&
+          messageTimestamp >= neroConnectionStartTime - 60;
+
+        if (type !== 'notify' && !recentAppend) continue;
+
+        // Prevent the same WhatsApp message from triggering twice.
+        if (messageId) {
+          if (processedMessageIds.has(messageId)) continue;
+
+          processedMessageIds.add(messageId);
+
+          setTimeout(() => {
+            processedMessageIds.delete(messageId);
+          }, 5 * 60 * 1000);
+        }
 
         // NERO CHANNEL FILTER
         // Ignore WhatsApp Channels before trigger checks, history, or LLM calls.
