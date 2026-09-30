@@ -19,10 +19,6 @@ function getSender(message) {
   );
 }
 
-function isBotMessage(message) {
-  return Boolean(message?.key?.fromMe);
-}
-
 function isTagAllCommand(text) {
   const input = String(text || '')
     .trim()
@@ -177,8 +173,6 @@ export async function handleNeroTagAllMessage({
   text,
 }) {
   if (!jid || !message) return false;
-  if (isBotMessage(message)) return true;
-
   if (!isTagAllCommand(text)) {
     return false;
   }
