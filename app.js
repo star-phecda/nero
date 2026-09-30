@@ -2664,7 +2664,10 @@ const masterMentioned = mentionedJids.some(jid =>
           .some(jid => myIds.includes(normalizeJid(jid)));
 
         const saidNero =
-          text.toLowerCase().includes(BOT_NAME.toLowerCase());
+          text.toLowerCase().includes(BOT_NAME.toLowerCase()) ||
+          /^nero[?!]*$/i.test(
+            text.replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
+          );
 
         const shouldRespond =
           masterMentioned ||
