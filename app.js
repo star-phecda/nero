@@ -5291,14 +5291,27 @@ function buildNeroRecapPrompt(
 
   return (
     'You are Nero, an AI member of a WhatsApp group. ' +
-    'Give the group a useful recap of ' +
+    'Create a concise but genuinely useful recap of ' +
     label +
     '.\\n\\n' +
 
-    'Focus on important conversations, events, plans, decisions, ' +
-    'questions, jokes or recurring inside references, disagreements, ' +
-    'and unresolved topics. Do not invent information. ' +
-    'Use concise headings and bullets where useful.\\n\\n' +
+    'You have access to the full conversation transcript below. ' +
+    'Use all of it when deciding what matters, including older messages. ' +
+    'Do NOT say the chat was quiet simply because recent messages are mostly testing. ' +
+    'Ignore repetitive recap requests unless they themselves are important. ' +
+    'Prioritize real conversations, events, plans, decisions, questions, jokes, ' +
+    'recurring inside references, disagreements, and unresolved topics. ' +
+    'Do not invent or infer missing context.\\n\\n' +
+
+    'OUTPUT RULES:\\n' +
+    '- Start immediately with the recap; no preamble.\\n' +
+    '- Use at most 3 short sections: 📌 Important, 💬 Other, ❓ Unresolved.\\n' +
+    '- Use a maximum of 2 bullets per section.\\n' +
+    '- Keep each bullet to 1–2 sentences.\\n' +
+    '- Target about 120–180 words total.\\n' +
+    '- Mention specific people, topics, decisions, or events when supported by the transcript.\\n' +
+    '- If a section has nothing meaningful, omit it.\\n' +
+    '- Finish the final bullet completely; never trail off mid-sentence.\\n\\n' +
 
     'GROUP CONVERSATION:\\n' +
     transcript
