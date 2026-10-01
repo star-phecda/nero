@@ -5448,13 +5448,7 @@ async function startNero() {
   });
 
   sock.ev.on('messages.upsert', ({ messages, type }) => {
-    console.log(
-      '[RAW UPSERT TEST] type=' +
-        String(type ?? 'unknown') +
-        ' count=' +
-        String(Array.isArray(messages) ? messages.length : 0)
-    );
-  });
+      });
 
   if (!state.creds.registered) {
     const pairingNumber = String(process.env.NERO_PAIRING_NUMBER || '').replace(/\\D/g, '');
@@ -5607,22 +5601,9 @@ async function startNero() {
             Math.abs(nowSeconds - messageTimestamp) <= 24 * 60 * 60
           );
 
-        console.log(
-          '[NERO UPSERT] type=' +
-            String(type ?? 'unknown') +
-            ' messages=' +
-            String(Array.isArray(messages) ? messages.length : 0) +
-            ' id=' +
-            String(messageId || '(no id)')
-        );
-
+        
         if (type !== 'notify' && !recentAppend) {
-          console.log(
-            '[NERO UPSERT] Skipped old/non-live message:',
-            String(type ?? 'unknown'),
-            messageId || '(no id)'
-          );
-          continue;
+                    continue;
         }
 
         // Prevent the same WhatsApp message from triggering twice.
@@ -6346,7 +6327,6 @@ const masterMentioned = mentionedJids.some(jid =>
               saidNero
             )
           : (
-              masterMentioned ||
               repliedToMaster ||
               saidNero
             );
