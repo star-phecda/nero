@@ -6336,10 +6336,20 @@ const masterMentioned = mentionedJids.some(jid =>
             text.replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
           );
 
-        const shouldRespond =
-          masterMentioned ||
-          repliedToMaster ||
-          saidNero;
+        // In DMs, Nero only responds when explicitly prompted.
+        // A prompt is saying/mentioning "Nero" or replying to Nero.
+        // Group behavior remains unchanged.
+        const shouldRespond = isGroup
+          ? (
+              masterMentioned ||
+              repliedToMaster ||
+              saidNero
+            )
+          : (
+              masterMentioned ||
+              repliedToMaster ||
+              saidNero
+            );
 
         // NERO NATURAL CALL RESPONSES
         // Simple calls do not need an LLM request.
