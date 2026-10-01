@@ -3514,6 +3514,77 @@ async function buildPrompt(jid, sender, text, groupRoster) {
   ].join('\n');
 }
 
+
+function isNeroProviderFallbackError(error) {
+  const message = String(error?.message || error || '');
+  const status = Number(error?.status || error?.code || 0);
+
+  return (
+    status === 429 ||
+    status === 503 ||
+    /429|resource.?exhausted|rate.?limit|quota|temporarily unavailable/i.test(message)
+  );
+}
+
+async function askGroq(prompt, started) {
+  const groqApiKey = process.env.GROQ_API_KEY;
+
+  if (!groqApiKey) {
+    throw new Error('Both Gemini models are unavailable and GROQ_API_KEY is missing.');
+  }
+
+  const groqModel = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
+
+  const response = await fetch(
+    'https://api.groq.com/openai/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + groqApiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: groqModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_completion_tokens: 256,
+        reasoning_effort: 'none'
+      })
+    }
+  );
+
+  if (!response.ok) {
+    let details = '';
+
+    try {
+      const data = await response.json();
+      details = data?.error?.message || data?.message || '';
+    } catch {}
+
+    throw new Error(
+      'Groq request failed (' +
+      response.status +
+      ')' +
+      (details ? ': ' + details : '.')
+    );
+  }
+
+  const data = await response.json();
+  const reply = data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) throw new Error('Groq returned no text.');
+
+  console.log(
+    '[GROQ] ' +
+    groqModel +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
 async function askGemini(sock, jid, sender, text) {
   const started = Date.now();
 
@@ -3542,9 +3613,7 @@ async function askGemini(sock, jid, sender, text) {
 
       const reply = response?.text?.trim();
 
-      if (!reply) {
-        throw new Error('Gemini returned no text.');
-      }
+      if (!reply) throw new Error('Gemini returned no text.');
 
       console.log(
         '[GEMINI] ' +
@@ -3558,47 +3627,36 @@ async function askGemini(sock, jid, sender, text) {
     } catch (error) {
       lastError = error;
 
-      const message = String(
-        error?.message || error || ''
-      );
-
-      const status = Number(
-        error?.status ||
-        error?.code ||
-        0
-      );
-
-      const shouldFallback =
-        status === 429 ||
-        status === 503 ||
-        /429|resource.?exhausted|rate.?limit|quota|temporarily unavailable/i.test(
-          message
-        );
-
       console.error(
         '[GEMINI] ' +
         model +
         ' failed: ' +
-        message
+        String(error?.message || error)
       );
 
-      if (
-        !shouldFallback ||
-        i === models.length - 1
-      ) {
+      if (!isNeroProviderFallbackError(error)) {
         throw error;
       }
 
+      if (i < models.length - 1) {
+        console.log(
+          '[GEMINI] Switching from ' +
+          model +
+          ' to ' +
+          models[i + 1]
+        );
+        continue;
+      }
+
       console.log(
-        '[GEMINI] Switching from ' +
-        model +
-        ' to ' +
-        models[i + 1]
+        '[NERO LLM] Both Gemini models are unavailable. Switching to Groq.'
       );
+
+      return await askGroq(prompt, started);
     }
   }
 
-  throw lastError || new Error('Gemini request failed.');
+  throw lastError || new Error('Nero LLM request failed.');
 }
 
 async function startNero() {
