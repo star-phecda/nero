@@ -5074,165 +5074,111 @@ function parseNeroRecapRequest(
   };
 }
 
-function parseNeroNaturalRecapRequest(
-  text,
-  historyLength
-) {
-  const clean =
-    String(text || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, ' ');
+function parseNeroNaturalRecapRequest(text, historyLength) {
+  const original = String(text || '').trim();
+  const clean = original.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!clean || clean.startsWith('!')) return null;
+
+  const intentText = clean.replace(/^nero(?:\s*[,!:;-])?\s+/, '').trim();
+  if (!intentText) return null;
 
   if (
-    !clean ||
-    clean.startsWith('!')
-  ) {
-    return null;
-  }
-
-  // Allow natural addressing such as:
-  // "Nero, give me a recap"
-  // "Nero what happened?"
-  const intentText =
-    clean
-      .replace(
-        /^nero(?:\s*[,!:;-])?\s+/,
-        ''
-      )
-      .trim();
-
-  if (!intentText) {
-    return null;
-  }
-
-  //
-  // Natural statistics requests.
-  //
-  const wantsStats =
     intentText === 'stats' ||
     intentText === 'history stats' ||
     intentText === 'message stats' ||
     /^(?:show|give me|tell me)\s+(?:the\s+)?(?:history|message)\s+(?:stats?|statistics?)$/.test(intentText) ||
-    /^(?:how many|how much)\s+(?:messages?|is stored|of the history)/.test(intentText);
-
-  if (wantsStats) {
-    return {
-      stats: true
-    };
+    /^(?:how many|how much)\s+(?:messages?|is stored|of the history)/.test(intentText)
+  ) {
+    return { stats: true };
   }
 
-  //
-  // Explicit recap/summary wording.
-  //
+  const numberWords = {
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+    seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+    thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+    eighteen: 18, nineteen: 19, twenty: 20, twentyone: 21,
+    twentytwo: 22, twentythree: 23, twentyfour: 24
+  };
+
+  const timeMatch = intentText.match(
+    /\b(?:last|past|previous|in the last|during the last)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|twenty[- ]?one|twenty[- ]?two|twenty[- ]?three|twenty[- ]?four)\s*(minutes?|mins?|hours?|hrs?|days?|d|h|m)\b/
+  );
+
   const hasRecapIntent =
+    /\b(?:recap|summary|summarize|summarise|catch me up|fill me in|what did i miss|what have i missed|what happened|what has happened|what's happened|what has been happening|what's been happening|what is happening|what's going on|what is going on|anything important)\b/.test(intentText);
+
+  if (timeMatch && hasRecapIntent) {
+    const rawAmount = timeMatch[1].replace(/[- ]/g, '');
+    const amount = /^\d+$/.test(rawAmount) ? Number(rawAmount) : numberWords[rawAmount];
+    const rawUnit = timeMatch[2].toLowerCase();
+
+    let unit;
+    if (rawUnit === 'm' || rawUnit.startsWith('min')) unit = 'm';
+    else if (rawUnit === 'h' || rawUnit.startsWith('hr') || rawUnit.startsWith('hour')) unit = 'h';
+    else unit = 'd';
+
+    const seconds =
+      unit === 'm' ? amount * 60 :
+      unit === 'h' ? amount * 3600 :
+      amount * 86400;
+
+    let label;
+    if (unit === 'm') {
+      label = 'the last ' + amount + ' minute' + (amount === 1 ? '' : 's');
+    } else if (unit === 'h') {
+      label = 'the last ' + amount + ' hour' + (amount === 1 ? '' : 's');
+    } else {
+      label = 'the last ' + amount + ' day' + (amount === 1 ? '' : 's');
+    }
+
+    const result = { seconds, label };
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    return result;
+  }
+
+  if (/\btoday\b/.test(intentText)) {
+    const result = parseNeroRecapRequest('!nero recap today', historyLength);
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    return result;
+  }
+
+  if (/\byesterday\b/.test(intentText)) {
+    const result = parseNeroRecapRequest('!nero recap yesterday', historyLength);
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    return result;
+  }
+
+  const countMatch = intentText.match(
+    /\b(?:last\s+)?(\d{1,5}(?:,\d{3})?)\s*(k|messages?|msgs?)\b/
+  );
+
+  if (
+    countMatch &&
+    /\b(?:recap|summary|summarize|summarise|catch me up|fill me in|what did i miss|what happened)\b/.test(intentText)
+  ) {
+    const rawCount = countMatch[1].replace(/,/g, '');
+    const count = Number(rawCount) * (countMatch[2] === 'k' ? 1000 : 1);
+    const result = parseNeroRecapRequest('!nero recap ' + count, historyLength);
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    return result;
+  }
+
+  const hasPlainRecapIntent =
     /^(?:please\s+)?(?:give me\s+(?:a\s+)?)?(?:recap|summary|summarize|summarise)(?:\s+.*)?$/.test(intentText) ||
     /^(?:please\s+)?(?:catch me up|fill me in|what did i miss|what have i missed)(?:\s+.*)?$/.test(intentText) ||
     /^(?:so\s+)?what happened(?:\s+.*)?\??$/.test(intentText) ||
     /^(?:so\s+)?what(?:'s| is| has)\s+(?:happened|been happening|going on)(?:\s+.*)?\??$/.test(intentText) ||
     /^anything important(?:\s+.*)?\??$/.test(intentText);
 
-  if (!hasRecapIntent) {
-    return null;
+  if (hasPlainRecapIntent) {
+    const result = { seconds: 21600, label: 'the last 6 hours' };
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    return result;
   }
 
-  //
-  // Today / yesterday.
-  //
-  if (/\b(?:today|yesterday)\b/.test(intentText)) {
-    const day =
-      intentText.includes('yesterday')
-        ? 'yesterday'
-        : 'today';
-
-    return parseNeroRecapRequest(
-      '!nero recap ' + day,
-      historyLength
-    );
-  }
-
-  //
-  // Exact time-window parsing:
-  // 2 hours = 7200 seconds
-  // 30 minutes = 1800 seconds
-  // 3 days = 259200 seconds
-  //
-  const timeMatch =
-    intentText.match(
-      /\b(\d+)\s*(minutes?|mins?|hours?|hrs?|days?|d|h|m)\b/
-    );
-
-  if (timeMatch) {
-    const amount =
-      Number(timeMatch[1]);
-
-    const rawUnit =
-      timeMatch[2].toLowerCase();
-
-    let unit;
-
-    if (
-      rawUnit === 'm' ||
-      rawUnit.startsWith('min')
-    ) {
-      unit = 'm';
-    } else if (
-      rawUnit === 'h' ||
-      rawUnit.startsWith('hr') ||
-      rawUnit.startsWith('hour')
-    ) {
-      unit = 'h';
-    } else {
-      unit = 'd';
-    }
-
-    return parseNeroRecapRequest(
-      '!nero recap ' +
-      amount +
-      unit,
-      historyLength
-    );
-  }
-
-  //
-  // Message-count parsing:
-  // 500 messages
-  // last 500 messages
-  // 20k messages
-  // last 20k messages
-  //
-  const countMatch =
-    intentText.match(
-      /\b(?:last\s+)?(\d{1,5}(?:,\d{3})?)\s*(k|messages?|msgs?)\b/
-    );
-
-  if (countMatch) {
-    const rawCount =
-      countMatch[1]
-        .replace(/,/g, '');
-
-    const suffix =
-      countMatch[2] === 'k'
-        ? 'k'
-        : '';
-
-    return parseNeroRecapRequest(
-      '!nero recap ' +
-      rawCount +
-      suffix,
-      historyLength
-    );
-  }
-
-  //
-  // Plain recap request = last 6 hours.
-  //
-  return {
-    seconds: 21600,
-    label: 'the last 6 hours'
-  };
+  return null;
 }
-
 function selectNeroRecapMessages(
   history,
   request
