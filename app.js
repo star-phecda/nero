@@ -5585,12 +5585,36 @@ async function startNero() {
 
         // Ignore genuinely old history, but allow recent append messages
         // because WhatsApp can deliver fresh messages this way after reconnect.
+        const nowSeconds = Math.floor(Date.now() / 1000);
+
+        // WhatsApp normally delivers new live messages as "notify".
+        // Some reconnects can deliver fresh messages as "append", so allow
+        // recent append messages too, while still rejecting old history.
         const recentAppend =
           type === 'append' &&
           messageTimestamp > 0 &&
-          messageTimestamp >= neroConnectionStartTime - 60;
+          (
+            messageTimestamp >= neroConnectionStartTime - 120 ||
+            Math.abs(nowSeconds - messageTimestamp) <= 24 * 60 * 60
+          );
 
-        if (type !== 'notify' && !recentAppend) continue;
+        console.log(
+          '[NERO UPSERT] type=' +
+            String(type ?? 'unknown') +
+            ' messages=' +
+            String(Array.isArray(messages) ? messages.length : 0) +
+            ' id=' +
+            String(messageId || '(no id)')
+        );
+
+        if (type !== 'notify' && !recentAppend) {
+          console.log(
+            '[NERO UPSERT] Skipped old/non-live message:',
+            String(type ?? 'unknown'),
+            messageId || '(no id)'
+          );
+          continue;
+        }
 
         // Prevent the same WhatsApp message from triggering twice.
         if (messageId) {
