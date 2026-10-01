@@ -858,7 +858,105 @@ async function neroFamilyFeudSend(sock, jid, text) {
   }
 }
 
-async function neroFamilyFeudPickQuestion(game) {
+async function askNeroFamilyFeudLLM(prompt, started, jid) {
+  const selectedKey =
+    jid
+      ? getNeroSelectedModel(jid)
+      : 'auto';
+
+  if (
+    selectedKey &&
+    selectedKey !== 'auto'
+  ) {
+    try {
+      console.log(
+        '[FEUD] Preferred model: ' +
+        getNeroModelInfo(selectedKey).label
+      );
+
+      return await askNeroSelectedModel(
+        selectedKey,
+        prompt,
+        started
+      );
+    } catch (error) {
+      console.error(
+        '[FEUD] Preferred model failed:',
+        error?.message || error
+      );
+
+      console.log(
+        '[FEUD] Returning to automatic provider fallback chain.'
+      );
+    }
+  }
+
+  const providers = [
+    {
+      name: 'Gemini primary',
+      run: () => askGeminiDirect(prompt, MODEL, started)
+    },
+    {
+      name: 'Gemini fallback',
+      run: () => askGeminiDirect(prompt, FALLBACK_MODEL, started)
+    },
+    {
+      name: 'Groq',
+      run: () => askGroq(prompt, started)
+    },
+    {
+      name: 'OpenRouter',
+      run: () => askOpenRouter(prompt, started)
+    },
+    {
+      name: 'NVIDIA NIM',
+      run: () => askNvidiaNim(prompt, started)
+    },
+    {
+      name: 'Cloudflare',
+      run: () => askCloudflare(prompt, started)
+    },
+    {
+      name: 'Mistral',
+      run: () => askMistral(prompt, started)
+    }
+  ];
+
+  let lastError = null;
+
+  for (const provider of providers) {
+    try {
+      return await provider.run();
+    } catch (error) {
+      lastError = error;
+
+      console.error(
+        '[FEUD] ' +
+        provider.name +
+        ' failed:',
+        error?.message || error
+      );
+
+      console.log(
+        '[FEUD] Falling back after ' +
+        provider.name +
+        ' failure.'
+      );
+    }
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      'No Family Feud LLM provider is available.'
+    )
+  );
+}
+
+async function neroFamilyFeudPickQuestion(
+  game,
+  jid = null
+) {
   const fsModule = await import('fs');
   const fs = fsModule.default || fsModule;
 
@@ -918,6 +1016,7 @@ async function neroFamilyFeudPickQuestion(game) {
       '- It MUST be different from every previously used question below.',
       '',
       'Return ONLY valid JSON.',
+      'Do not wrap the JSON in markdown or code fences.',
       '',
       'Required JSON:',
       '{',
@@ -944,91 +1043,25 @@ async function neroFamilyFeudPickQuestion(game) {
     ].join('\n');
 
     try {
-      const response = await fetch(
-        'https://api.groq.com/openai/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization':
-              'Bearer ' + process.env.GROQ_API_KEY,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: MODEL,
-            messages: [
-              {
-                role: 'user',
-                content: prompt
-              }
-            ],
-            temperature: 0.2,
-            max_completion_tokens: 300,
-            reasoning_effort: 'none',
-            response_format: {
-              type: 'json_schema',
-              json_schema: {
-                name: 'family_feud_question',
-                strict: true,
-                schema: {
-                  type: 'object',
-                  properties: {
-                    question: {
-                      type: 'string'
-                    },
-                    answers: {
-                      type: 'array',
-                      minItems: 5,
-                      maxItems: 5,
-                      items: {
-                        type: 'object',
-                        properties: {
-                          answer: {
-                            type: 'string'
-                          },
-                          points: {
-                            type: 'integer'
-                          }
-                        },
-                        required: ['answer', 'points'],
-                        additionalProperties: false
-                      }
-                    }
-                  },
-                  required: ['question', 'answers'],
-                  additionalProperties: false
-                }
-              }
-            },
-            stream: false
-          })
-        }
+      const started = Date.now();
+      const content = await askNeroFamilyFeudLLM(
+        prompt,
+        started,
+        jid
       );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          'Groq API ' +
-          response.status +
-          ': ' +
-          (data?.error?.message || JSON.stringify(data))
-        );
-      }
-
-      let content =
-        data?.choices?.[0]?.message?.content || '';
-
-      const firstBrace = content.indexOf('{');
-      const lastBrace = content.lastIndexOf('}');
+      let jsonText = String(content || '').trim();
+      const firstBrace = jsonText.indexOf('{');
+      const lastBrace = jsonText.lastIndexOf('}');
 
       if (firstBrace !== -1 && lastBrace !== -1) {
-        content = content.slice(
+        jsonText = jsonText.slice(
           firstBrace,
           lastBrace + 1
         );
       }
 
-      const generated = JSON.parse(content);
+      const generated = JSON.parse(jsonText);
 
       if (
         typeof generated.question !== 'string' ||
@@ -1040,8 +1073,7 @@ async function neroFamilyFeudPickQuestion(game) {
         );
       }
 
-      const normalized =
-        normalizeQuestion(generated.question);
+      const normalized = normalizeQuestion(generated.question);
 
       if (!normalized) {
         throw new Error(
@@ -1309,7 +1341,52 @@ async function neroFamilyFeudStartNextRound(sock, jid) {
     return;
   }
 
-  const question = await neroFamilyFeudPickQuestion(game);
+  let question;
+
+  try {
+    question = await neroFamilyFeudPickQuestion(game, jid);
+  } catch (error) {
+    console.error(
+      '[FEUD] Round generation failed:',
+      error?.message || error
+    );
+
+    neroFamilyFeudClearTimers(game);
+    neroFamilyFeudGames.delete(jid);
+
+    await neroFamilyFeudSend(
+      sock,
+      jid,
+      'FAMILY FEUD\n\n' +
+      'I could not generate a valid question from the available AI providers. ' +
+      'The game has been stopped.'
+    );
+
+    return;
+  }
+
+  if (
+    !question ||
+    typeof question.question !== 'string' ||
+    !Array.isArray(question.answers) ||
+    question.answers.length !== 5
+  ) {
+    console.error(
+      '[FEUD] Refusing to start round with invalid question data.'
+    );
+
+    neroFamilyFeudClearTimers(game);
+    neroFamilyFeudGames.delete(jid);
+
+    await neroFamilyFeudSend(
+      sock,
+      jid,
+      'FAMILY FEUD\n\n' +
+      'The generated question was invalid, so the game has been stopped safely.'
+    );
+
+    return;
+  }
 
   game.round += 1;
 
