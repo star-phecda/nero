@@ -3840,6 +3840,81 @@ async function askMistral(prompt, started = Date.now()) {
   return reply;
 }
 
+async function askCloudflare(prompt, started = Date.now()) {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const model =
+    process.env.CLOUDFLARE_MODEL ||
+    '@cf/zai-org/glm-4.7-flash';
+
+  if (!accountId) {
+    throw new Error('CLOUDFLARE_ACCOUNT_ID is missing');
+  }
+
+  if (!apiToken) {
+    throw new Error('CLOUDFLARE_API_TOKEN is missing');
+  }
+
+  const url =
+    'https://api.cloudflare.com/client/v4/accounts/' +
+    accountId +
+    '/ai/run/' +
+    encodeURIComponent(model);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + apiToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 256
+    })
+  });
+
+  const raw = await response.text();
+
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch (_) {}
+
+  if (!response.ok || data?.success === false) {
+    const message =
+      data?.errors?.[0]?.message ||
+      raw ||
+      ('HTTP ' + response.status);
+
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+
+  const reply =
+    data?.result?.response?.trim();
+
+  if (!reply) {
+    throw new Error('Cloudflare returned no text.');
+  }
+
+  console.log(
+    '[CLOUDFLARE] ' +
+    model +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
 async function askGemini(sock, jid, sender, text) {
   const started = Date.now();
 
@@ -3982,7 +4057,23 @@ async function askGemini(sock, jid, sender, text) {
   }
 
   console.log(
-    '[NERO LLM] NVIDIA NIM is unavailable. Switching to Mistral.'
+    '[NERO LLM] NVIDIA NIM is unavailable. Switching to Cloudflare.'
+  );
+
+  try {
+    return await askCloudflare(
+      prompt,
+      started
+    );
+  } catch (error) {
+    console.error(
+      '[CLOUDFLARE] Failed: ' +
+      String(error?.message || error)
+    );
+  }
+
+  console.log(
+    '[NERO LLM] Cloudflare is unavailable. Switching to Mistral.'
   );
 
   return await askMistral(
