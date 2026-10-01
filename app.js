@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import 'dotenv/config';
 import makeWASocket, {
+  Browsers,
   DisconnectReason,
   useMultiFileAuthState,
   proto,
@@ -5420,14 +5421,42 @@ async function startNero() {
     auth: state,
     logger,
     markOnlineOnConnect: false,
+
+    // Recaps require actual WhatsApp history,
+    // not just messages received while Nero is running.
+    browser: Browsers.macOS('Desktop'),
+    syncFullHistory: true,
   });
 
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on(
     'messaging-history.set',
-    ({ messages }) => {
-      importNeroGroupHistory(messages);
+    ({ messages, syncType, isLatest }) => {
+      const list = Array.isArray(messages)
+        ? messages
+        : [];
+
+      console.log(
+        '[NERO HISTORY] History sync:',
+        'type=' + String(syncType ?? 'unknown'),
+        'messages=' + list.length,
+        'isLatest=' + String(Boolean(isLatest))
+      );
+
+      importNeroGroupHistory(list);
+    }
+  );
+
+  sock.ev.on(
+    'messaging-history.status',
+    ({ syncType, status, progress }) => {
+      console.log(
+        '[NERO HISTORY] Sync status:',
+        'type=' + String(syncType ?? 'unknown'),
+        'status=' + String(status ?? 'unknown'),
+        progress != null ? 'progress=' + String(progress) : ''
+      );
     }
   );
 
@@ -6039,10 +6068,42 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
               const count =
                 groupHistory.length;
 
+              const timestamps = groupHistory
+                .map(item => Number(item.timestamp || 0))
+                .filter(value => Number.isFinite(value) && value > 0);
+
+              const oldest =
+                timestamps.length
+                  ? new Date(Math.min(...timestamps) * 1000).toISOString()
+                  : 'none';
+
+              const newest =
+                timestamps.length
+                  ? new Date(Math.max(...timestamps) * 1000).toISOString()
+                  : 'none';
+
+              const last24hCutoff =
+                Math.floor(Date.now() / 1000) - 86400;
+
+              const last24hCount =
+                groupHistory.filter(
+                  item =>
+                    Number(item.timestamp || 0) >= last24hCutoff
+                ).length;
+
               const statsText =
                 '🧠 Nero history: ' +
                 count.toLocaleString() +
                 ' stored messages for this group.\n' +
+                'Last 24h: ' +
+                last24hCount.toLocaleString() +
+                '\n' +
+                'Oldest stored: ' +
+                oldest +
+                '\n' +
+                'Newest stored: ' +
+                newest +
+                '\n' +
                 'Ceiling: 20,000 messages.';
 
               rememberNeroBotOutbound(
