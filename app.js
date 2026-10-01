@@ -45,6 +45,80 @@ const processedMessageIds = new Set();
 let neroConnectionStartTime = 0;
 const botSentMessageIds = new Set();
 
+const recentNeroBotOutbound = new Map();
+const recapInFlightMessageIds = new Set();
+const recapCompletedMessageIds = new Set();
+
+function neroOutboundTextKey(jid, text) {
+  return (
+    String(jid || '') +
+    '\u0000' +
+    String(text || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+  );
+}
+
+function rememberNeroBotOutbound(jid, text) {
+  const key = neroOutboundTextKey(jid, text);
+  if (!key) return;
+
+  const createdAt = Date.now();
+
+  recentNeroBotOutbound.set(
+    key,
+    createdAt
+  );
+
+  setTimeout(() => {
+    if (
+      recentNeroBotOutbound.get(key) ===
+      createdAt
+    ) {
+      recentNeroBotOutbound.delete(key);
+    }
+  }, 2 * 60 * 1000);
+}
+
+function isNeroGeneratedMessage(
+  message,
+  jid,
+  text
+) {
+  if (!message?.key?.fromMe) {
+    return false;
+  }
+
+  const id = message.key?.id;
+
+  if (
+    id &&
+    botSentMessageIds.has(id)
+  ) {
+    return true;
+  }
+
+  const key =
+    neroOutboundTextKey(
+      jid,
+      text
+    );
+
+  const sentAt =
+    recentNeroBotOutbound.get(key);
+
+  if (!sentAt) {
+    return false;
+  }
+
+  return (
+    Date.now() - sentAt <
+    2 * 60 * 1000
+  );
+}
+
+
 const NERO_MODEL_SETTINGS_FILE =
   process.cwd() + '/nero_model_settings.json';
 
@@ -404,6 +478,8 @@ function formatNeroMemoryForPrompt(jid) {
 }
 
 async function sendNeroControlMessage(sock, jid, text) {
+  rememberNeroBotOutbound(jid, text);
+
   const sentMessage = await sock.sendMessage(jid, { text });
 
   if (sentMessage?.key?.id) {
@@ -5008,17 +5084,37 @@ function parseNeroNaturalRecapRequest(
       .toLowerCase()
       .replace(/\s+/g, ' ');
 
-  if (!clean || clean.startsWith('!')) {
+  if (
+    !clean ||
+    clean.startsWith('!')
+  ) {
     return null;
   }
 
-  // Natural history statistics.
+  // Allow natural addressing such as:
+  // "Nero, give me a recap"
+  // "Nero what happened?"
+  const intentText =
+    clean
+      .replace(
+        /^nero(?:\s*[,!:;-])?\s+/,
+        ''
+      )
+      .trim();
+
+  if (!intentText) {
+    return null;
+  }
+
+  //
+  // Natural statistics requests.
+  //
   const wantsStats =
-    clean === 'stats' ||
-    clean === 'history stats' ||
-    /\b(?:recap|summary|history)\b.*\b(?:stats?|statistics?|count|stored)\b/.test(clean) ||
-    /\bhow (?:many|much)\b.*\b(?:messages?|history)\b/.test(clean) ||
-    /\b(?:stored|saved)\s+(?:messages?|history)\b/.test(clean);
+    intentText === 'stats' ||
+    intentText === 'history stats' ||
+    intentText === 'message stats' ||
+    /^(?:show|give me|tell me)\s+(?:the\s+)?(?:history|message)\s+(?:stats?|statistics?)$/.test(intentText) ||
+    /^(?:how many|how much)\s+(?:messages?|is stored|of the history)/.test(intentText);
 
   if (wantsStats) {
     return {
@@ -5026,18 +5122,26 @@ function parseNeroNaturalRecapRequest(
     };
   }
 
-  // Natural recap / catch-up requests.
+  //
+  // Explicit recap/summary wording.
+  //
   const hasRecapIntent =
-    /\b(?:recap|summary|summarize|summarise|catch me up|fill me in|what did i miss|what have i missed|what happened|what has happened|what's happened|what has been happening|what's been happening|what is happening|what's going on|what is going on|anything important)\b/.test(clean);
+    /^(?:please\s+)?(?:give me\s+(?:a\s+)?)?(?:recap|summary|summarize|summarise)(?:\s+.*)?$/.test(intentText) ||
+    /^(?:please\s+)?(?:catch me up|fill me in|what did i miss|what have i missed)(?:\s+.*)?$/.test(intentText) ||
+    /^(?:so\s+)?what happened(?:\s+.*)?\??$/.test(intentText) ||
+    /^(?:so\s+)?what(?:'s| is| has)\s+(?:happened|been happening|going on)(?:\s+.*)?\??$/.test(intentText) ||
+    /^anything important(?:\s+.*)?\??$/.test(intentText);
 
   if (!hasRecapIntent) {
     return null;
   }
 
+  //
   // Today / yesterday.
-  if (/\b(?:today|yesterday)\b/.test(clean)) {
+  //
+  if (/\b(?:today|yesterday)\b/.test(intentText)) {
     const day =
-      clean.includes('yesterday')
+      intentText.includes('yesterday')
         ? 'yesterday'
         : 'today';
 
@@ -5047,54 +5151,82 @@ function parseNeroNaturalRecapRequest(
     );
   }
 
-  // Natural time requests:
-  // "what happened in the last 2 hours?"
-  // "summary of the last 30 minutes"
-  // "recap the last 3 days"
+  //
+  // Exact time-window parsing:
+  // 2 hours = 7200 seconds
+  // 30 minutes = 1800 seconds
+  // 3 days = 259200 seconds
+  //
   const timeMatch =
-    clean.match(
-      /\b(\d+)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d)\b/
+    intentText.match(
+      /\b(\d+)\s*(minutes?|mins?|hours?|hrs?|days?|d|h|m)\b/
     );
 
   if (timeMatch) {
-    const amount = timeMatch[1];
-    const rawUnit = timeMatch[2];
+    const amount =
+      Number(timeMatch[1]);
 
-    const unit =
-      /^m/i.test(rawUnit)
-        ? 'm'
-        : /^h/i.test(rawUnit)
-          ? 'h'
-          : 'd';
+    const rawUnit =
+      timeMatch[2].toLowerCase();
+
+    let unit;
+
+    if (
+      rawUnit === 'm' ||
+      rawUnit.startsWith('min')
+    ) {
+      unit = 'm';
+    } else if (
+      rawUnit === 'h' ||
+      rawUnit.startsWith('hr') ||
+      rawUnit.startsWith('hour')
+    ) {
+      unit = 'h';
+    } else {
+      unit = 'd';
+    }
 
     return parseNeroRecapRequest(
-      '!nero recap ' + amount + unit,
+      '!nero recap ' +
+      amount +
+      unit,
       historyLength
     );
   }
 
-  // Natural message-count requests:
-  // "recap the last 500 messages"
-  // "summary of the last 2k messages"
+  //
+  // Message-count parsing:
+  // 500 messages
+  // last 500 messages
+  // 20k messages
+  // last 20k messages
+  //
   const countMatch =
-    clean.match(
+    intentText.match(
       /\b(?:last\s+)?(\d{1,5}(?:,\d{3})?)\s*(k|messages?|msgs?)\b/
     );
 
   if (countMatch) {
     const rawCount =
-      countMatch[1].replace(/,/g, '');
+      countMatch[1]
+        .replace(/,/g, '');
+
+    const suffix =
+      countMatch[2] === 'k'
+        ? 'k'
+        : '';
 
     return parseNeroRecapRequest(
       '!nero recap ' +
-        rawCount +
-        (countMatch[2] === 'k' ? 'k' : ''),
+      rawCount +
+      suffix,
       historyLength
     );
   }
 
-  // Plain "recap", "summary", "what happened?",
-  // "what did I miss?", etc. → last 6 hours.
+  //
+  // Plain recap request = last 6 hours.
+  //
   return {
     seconds: 21600,
     label: 'the last 6 hours'
@@ -5465,12 +5597,24 @@ async function startNero() {
 
       try {
         if (!message?.message) continue;
-        if (message.key?.fromMe && botSentMessageIds.has(message.key?.id)) continue;
-        const jid = message.key.remoteJid;
+
+        const jid = message.key?.remoteJid;
         if (!jid || jid === 'status@broadcast') continue;
 
         const text = getText(message)?.trim();
         if (!text) continue;
+
+        // Never let Nero's own outgoing messages re-enter
+        // the recap detector or normal conversation pipeline.
+        if (
+          isNeroGeneratedMessage(
+            message,
+            jid,
+            text
+          )
+        ) {
+          continue;
+        }
 
         const isGroup = jid.endsWith('@g.us');
         const sender =
@@ -5885,16 +6029,22 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
 
 
         // NERO ON-DEMAND GROUP RECAP
+
+        const groupHistory =
+          isGroup
+            ? getNeroGroupHistory(jid)
+            : [];
+
         const recapRequest =
           isGroup
             ? (
                 parseNeroRecapRequest(
                   text,
-                  getNeroGroupHistory(jid).length
+                  groupHistory.length
                 ) ||
                 parseNeroNaturalRecapRequest(
                   text,
-                  getNeroGroupHistory(jid).length
+                  groupHistory.length
                 )
               )
             : null;
@@ -5903,63 +6053,111 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
           isGroup &&
           recapRequest
         ) {
-          const request = recapRequest;
-
-          if (request?.stats) {
-            const count =
-              getNeroGroupHistory(jid).length;
-
-            await sock.sendMessage(
-              jid,
-              {
-                text:
-                  '🧠 Nero history: ' +
-                  count.toLocaleString() +
-                  ' stored messages for this group.\\n' +
-                  'Ceiling: 20,000 messages.'
-              }
+          const recapMessageId =
+            message.key?.id ||
+            (
+              jid +
+              ':' +
+              messageTimestamp +
+              ':' +
+              text
             );
 
+          // Hard one-message guard.
+          // Even if Baileys delivers the same event again,
+          // this message cannot start another recap.
+          if (
+            recapInFlightMessageIds.has(
+              recapMessageId
+            ) ||
+            recapCompletedMessageIds.has(
+              recapMessageId
+            )
+          ) {
             continue;
           }
 
-          const history =
-            getNeroGroupHistory(jid);
+          recapInFlightMessageIds.add(
+            recapMessageId
+          );
 
-          const selected =
-            selectNeroRecapMessages(
-              history,
-              request || {
-                seconds: 21600,
-                label: 'the last 6 hours'
-              }
-            );
-
-          if (!selected.length) {
-            await sock.sendMessage(
-              jid,
-              {
-                text:
-                  'I do not have stored messages for that period yet.'
-              }
-            );
-
-            continue;
-          }
+          console.log(
+            '[NERO RECAP] Handling:',
+            recapRequest.stats
+              ? 'stats'
+              : recapRequest.label
+          );
 
           try {
+            if (recapRequest.stats) {
+              const count =
+                groupHistory.length;
+
+              const statsText =
+                '🧠 Nero history: ' +
+                count.toLocaleString() +
+                ' stored messages for this group.\n' +
+                'Ceiling: 20,000 messages.';
+
+              rememberNeroBotOutbound(
+                jid,
+                statsText
+              );
+
+              await sock.sendMessage(
+                jid,
+                {
+                  text: statsText
+                }
+              );
+
+              continue;
+            }
+
+            const selected =
+              selectNeroRecapMessages(
+                groupHistory,
+                recapRequest
+              );
+
+            if (!selected.length) {
+              const emptyText =
+                'I do not have stored messages for that period yet.';
+
+              rememberNeroBotOutbound(
+                jid,
+                emptyText
+              );
+
+              await sock.sendMessage(
+                jid,
+                {
+                  text: emptyText
+                }
+              );
+
+              continue;
+            }
+
+            const thinkingText =
+              'Give me a moment, Master. I am reading the stored conversation...';
+
+            rememberNeroBotOutbound(
+              jid,
+              thinkingText
+            );
+
             await sock.sendMessage(
               jid,
               {
-                text:
-                  'Give me a moment, Master. I am reading the stored conversation...'
+                text: thinkingText
               }
             );
 
             const prompt =
               buildNeroRecapPrompt(
                 selected,
-                request?.label ||
+                recapRequest.label ||
                   'the requested period'
               );
 
@@ -5969,32 +6167,75 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
                 prompt
               );
 
-            await sock.sendMessage(
+            const finalText =
+              '📝 NERO RECAP — ' +
+              (
+                recapRequest.label ||
+                'requested period'
+              ) +
+              '\n\n' +
+              String(recap).trim();
+
+            rememberNeroBotOutbound(
               jid,
-              {
-                text:
-                  '📝 NERO RECAP — ' +
-                  (
-                    request?.label ||
-                    'requested period'
-                  ) +
-                  '\\n\\n' +
-                  String(recap).trim()
-              }
+              finalText
             );
+
+            const sentMessage =
+              await sock.sendMessage(
+                jid,
+                {
+                  text: finalText
+                }
+              );
+
+            if (
+              sentMessage?.key?.id
+            ) {
+              botSentMessageIds.add(
+                sentMessage.key.id
+              );
+
+              setTimeout(() => {
+                botSentMessageIds.delete(
+                  sentMessage.key.id
+                );
+              }, 5 * 60 * 1000);
+            }
           } catch (err) {
             console.error(
               '[NERO RECAP] Failed:',
               err?.message || err
             );
 
+            const errorText =
+              'I could not prepare the recap right now. My stored history is safe; an AI provider failed to answer.';
+
+            rememberNeroBotOutbound(
+              jid,
+              errorText
+            );
+
             await sock.sendMessage(
               jid,
               {
-                text:
-                  'I could not prepare the recap right now. My stored history is safe; an AI provider failed to answer.'
+                text: errorText
               }
             );
+          } finally {
+            recapInFlightMessageIds.delete(
+              recapMessageId
+            );
+
+            recapCompletedMessageIds.add(
+              recapMessageId
+            );
+
+            setTimeout(() => {
+              recapCompletedMessageIds.delete(
+                recapMessageId
+              );
+            }, 10 * 60 * 1000);
           }
 
           continue;
@@ -6098,6 +6339,11 @@ const masterMentioned = mentionedJids.some(jid =>
       await sock.sendPresenceUpdate('paused', jid).catch(() => {});
 
         addToHistory(jid, BOT_NAME, reply);
+
+        rememberNeroBotOutbound(
+          jid,
+          reply
+        );
 
         const sentMessage = await sock.sendMessage(
           jid,
