@@ -3859,7 +3859,7 @@ async function askCloudflare(prompt, started = Date.now()) {
     'https://api.cloudflare.com/client/v4/accounts/' +
     accountId +
     '/ai/run/' +
-    encodeURIComponent(model);
+    model;
 
   const response = await fetch(url, {
     method: 'POST',
