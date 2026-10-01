@@ -5434,6 +5434,25 @@ async function startNero() {
     shouldSyncHistoryMessage: () => true,
   });
 
+  if (!state.creds.registered) {
+    const pairingNumber = String(process.env.NERO_PAIRING_NUMBER || '').replace(/\\D/g, '');
+
+    if (!pairingNumber) {
+      console.log('[NERO PAIRING] No phone number supplied.');
+      console.log('[NERO PAIRING] Start with: NERO_PAIRING_NUMBER=234XXXXXXXXXX npm start');
+    } else {
+      setTimeout(async () => {
+        try {
+          const code = await sock.requestPairingCode(pairingNumber);
+          console.log('[NERO PAIRING] WhatsApp pairing code:', code);
+          console.log('[NERO PAIRING] On your phone: WhatsApp > Linked devices > Link a device > Link with phone number');
+        } catch (error) {
+          console.error('[NERO PAIRING] Failed:', error?.message || error);
+        }
+      }, 4000);
+    }
+  }
+
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on(
