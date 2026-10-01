@@ -5447,6 +5447,15 @@ async function startNero() {
     shouldSyncHistoryMessage: () => true,
   });
 
+  sock.ev.on('messages.upsert', ({ messages, type }) => {
+    console.log(
+      '[RAW UPSERT TEST] type=' +
+        String(type ?? 'unknown') +
+        ' count=' +
+        String(Array.isArray(messages) ? messages.length : 0)
+    );
+  });
+
   if (!state.creds.registered) {
     const pairingNumber = String(process.env.NERO_PAIRING_NUMBER || '').replace(/\\D/g, '');
 
