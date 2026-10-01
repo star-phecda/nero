@@ -4137,8 +4137,7 @@ async function askCloudflare(
   const url =
     'https://api.cloudflare.com/client/v4/accounts/' +
     accountId +
-    '/ai/run/' +
-    model;
+    '/ai/v1/chat/completions';
 
   const response = await fetch(url, {
     method: 'POST',
@@ -4147,6 +4146,7 @@ async function askCloudflare(
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
+      model,
       messages: [
         {
           role: 'user',
@@ -4154,7 +4154,16 @@ async function askCloudflare(
         }
       ],
       temperature: 0.7,
-      max_tokens: 256
+
+      // GLM-4.7-Flash is a reasoning model.
+      // Disable hidden thinking so Nero gets visible chat text
+      // instead of spending the whole completion budget reasoning.
+      reasoning_effort: null,
+      chat_template_kwargs: {
+        enable_thinking: false
+      },
+
+      max_completion_tokens: 512
     })
   });
 
@@ -4163,10 +4172,13 @@ async function askCloudflare(
   let data = {};
   try {
     data = raw ? JSON.parse(raw) : {};
-  } catch (_) {}
+  } catch (_) {
+    data = {};
+  }
 
   if (!response.ok || data?.success === false) {
     const message =
+      data?.error?.message ||
       data?.errors?.[0]?.message ||
       raw ||
       ('HTTP ' + response.status);
@@ -4176,11 +4188,56 @@ async function askCloudflare(
     throw error;
   }
 
-  const reply =
-    data?.result?.response?.trim();
+  const message =
+    data?.choices?.[0]?.message ||
+    data?.result?.choices?.[0]?.message ||
+    null;
+
+  let reply =
+    message?.content ??
+    data?.result?.response ??
+    data?.response ??
+    '';
+
+  if (Array.isArray(reply)) {
+    reply = reply
+      .map(part => {
+        if (typeof part === 'string') return part;
+        return (
+          part?.text ||
+          part?.content ||
+          ''
+        );
+      })
+      .filter(Boolean)
+      .join('');
+  }
+
+  reply = String(reply).trim();
 
   if (!reply) {
-    throw new Error('Cloudflare returned no text.');
+    const shape = {
+      topLevelKeys: Object.keys(data || {}),
+      resultKeys:
+        data?.result &&
+        typeof data.result === 'object'
+          ? Object.keys(data.result)
+          : [],
+      choiceKeys:
+        message &&
+        typeof message === 'object'
+          ? Object.keys(message)
+          : []
+    };
+
+    console.log(
+      '[CLOUDFLARE DEBUG] ' +
+      JSON.stringify(shape)
+    );
+
+    throw new Error(
+      'Cloudflare returned no visible text.'
+    );
   }
 
   console.log(
