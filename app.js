@@ -3515,6 +3515,7 @@ async function buildPrompt(jid, sender, text, groupRoster) {
 }
 
 
+
 function isNeroProviderFallbackError(error) {
   const message = String(error?.message || error || '');
   const status = Number(error?.status || error?.code || 0);
@@ -3530,10 +3531,13 @@ async function askGroq(prompt, started) {
   const groqApiKey = process.env.GROQ_API_KEY;
 
   if (!groqApiKey) {
-    throw new Error('Both Gemini models are unavailable and GROQ_API_KEY is missing.');
+    throw new Error(
+      'GROQ_API_KEY is missing. Groq is unavailable.'
+    );
   }
 
-  const groqModel = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
+  const groqModel =
+    process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
 
   const response = await fetch(
     'https://api.groq.com/openai/v1/chat/completions',
@@ -3545,7 +3549,12 @@ async function askGroq(prompt, started) {
       },
       body: JSON.stringify({
         model: groqModel,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
         temperature: 0.7,
         max_completion_tokens: 256,
         reasoning_effort: 'none'
@@ -3558,25 +3567,116 @@ async function askGroq(prompt, started) {
 
     try {
       const data = await response.json();
-      details = data?.error?.message || data?.message || '';
+      details =
+        data?.error?.message ||
+        data?.message ||
+        '';
     } catch {}
 
-    throw new Error(
+    const error = new Error(
       'Groq request failed (' +
       response.status +
       ')' +
       (details ? ': ' + details : '.')
     );
+
+    error.status = response.status;
+    throw error;
   }
 
   const data = await response.json();
-  const reply = data?.choices?.[0]?.message?.content?.trim();
 
-  if (!reply) throw new Error('Groq returned no text.');
+  const reply =
+    data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error('Groq returned no text.');
+  }
 
   console.log(
     '[GROQ] ' +
     groqModel +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
+async function askOpenRouter(prompt, started) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      'OPENROUTER_API_KEY is missing.'
+    );
+  }
+
+  const model =
+    process.env.NERO_OPENROUTER_MODEL ||
+    'nvidia/nemotron-3-ultra-550b-a55b:free';
+
+  const response = await fetch(
+    'https://openrouter.ai/api/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://github.com/star-phecda/nero',
+        'X-Title': 'Nero'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 256
+      })
+    }
+  );
+
+  if (!response.ok) {
+    let details = '';
+
+    try {
+      const data = await response.json();
+      details =
+        data?.error?.message ||
+        data?.message ||
+        '';
+    } catch {}
+
+    const error = new Error(
+      'OpenRouter request failed (' +
+      response.status +
+      ')' +
+      (details ? ': ' + details : '.')
+    );
+
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+
+  const reply =
+    data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error(
+      'OpenRouter returned no text.'
+    );
+  }
+
+  console.log(
+    '[OPENROUTER] ' +
+    model +
     ' — ' +
     (Date.now() - started) +
     ' ms'
@@ -3602,18 +3702,24 @@ async function askGemini(sock, jid, sender, text) {
     const model = models[i];
 
     try {
-      const response = await gemini.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          temperature: 0.7,
-          maxOutputTokens: 256
-        }
-      });
+      const response =
+        await gemini.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            temperature: 0.7,
+            maxOutputTokens: 256
+          }
+        });
 
-      const reply = response?.text?.trim();
+      const reply =
+        response?.text?.trim();
 
-      if (!reply) throw new Error('Gemini returned no text.');
+      if (!reply) {
+        throw new Error(
+          'Gemini returned no text.'
+        );
+      }
 
       console.log(
         '[GEMINI] ' +
@@ -3624,6 +3730,7 @@ async function askGemini(sock, jid, sender, text) {
       );
 
       return reply;
+
     } catch (error) {
       lastError = error;
 
@@ -3634,7 +3741,9 @@ async function askGemini(sock, jid, sender, text) {
         String(error?.message || error)
       );
 
-      if (!isNeroProviderFallbackError(error)) {
+      if (
+        !isNeroProviderFallbackError(error)
+      ) {
         throw error;
       }
 
@@ -3645,18 +3754,45 @@ async function askGemini(sock, jid, sender, text) {
           ' to ' +
           models[i + 1]
         );
+
         continue;
       }
-
-      console.log(
-        '[NERO LLM] Both Gemini models are unavailable. Switching to Groq.'
-      );
-
-      return await askGroq(prompt, started);
     }
   }
 
-  throw lastError || new Error('Nero LLM request failed.');
+  console.log(
+    '[NERO LLM] Both Gemini models are unavailable. Switching to Groq.'
+  );
+
+  try {
+    return await askGroq(
+      prompt,
+      started
+    );
+  } catch (error) {
+    console.error(
+      '[GROQ] Failed: ' +
+      String(error?.message || error)
+    );
+
+    if (
+      !isNeroProviderFallbackError(error) &&
+      !/GROQ_API_KEY is missing/i.test(
+        String(error?.message || error)
+      )
+    ) {
+      throw error;
+    }
+  }
+
+  console.log(
+    '[NERO LLM] Groq is unavailable. Switching to OpenRouter.'
+  );
+
+  return await askOpenRouter(
+    prompt,
+    started
+  );
 }
 
 async function startNero() {
