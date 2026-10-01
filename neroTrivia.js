@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
+import { PICTURE_QUESTIONS } from './pictureTriviaBank.js';
 
 dotenv.config();
 
@@ -865,6 +866,7 @@ const PICTURE_MODES = {
   logos: 'logos',
   actors: 'actors',
   characters: 'characters',
+  flags: 'flags',
   mixed: 'mixed'
 };
 
@@ -880,185 +882,18 @@ const PICTURE_MODE_ALIASES = new Map([
   ['character', 'characters'],
   ['characters', 'characters'],
   ['anime', 'characters'],
+  ['pokemon', 'characters'],
+  ['pokémon', 'characters'],
+  ['superhero', 'characters'],
+  ['superheroes', 'characters'],
+  ['flag', 'flags'],
+  ['flags', 'flags'],
+  ['country', 'flags'],
+  ['countries', 'flags'],
   ['mixed', 'mixed'],
   ['random', 'mixed']
 ]);
 
-const PICTURE_QUESTIONS = [
-  {
-    id: 'logo-nike',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Nike',
-    aliases: ['nike inc', 'nike incorporated'],
-    imageUrl:
-      'https://i.pinimg.com/originals/08/c7/a6/08c7a6367523a3cee26872dc74221ce3.png'
-  },
-  {
-    id: 'logo-coke',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Coca-Cola',
-    aliases: ['coca cola', 'coca-cola company'],
-    imageUrl:
-      'https://toppng.com/uploads/preview/coca-cola-food-png-photo-11665525695sc7kexwtva.png'
-  },
-  {
-    id: 'logo-mcdonalds',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: "McDonald's",
-    aliases: ['mcdonalds', 'mcdonalds corporation', 'mcdonald'],
-    imageUrl:
-      'https://www.citypng.com/public/uploads/preview/mcdonalds-yellow-m-symbol-logo-high-resolution-70175169479008933cofjbaaw.png?v=2026032110'
-  },
-  {
-    id: 'logo-apple',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Apple',
-    aliases: ['apple inc', 'apple incorporated'],
-    imageUrl:
-      'https://p7.hiclipart.com/preview/180/516/952/apple-logo-computer-icons-clip-art-iphone-apple.jpg'
-  },
-  {
-    id: 'logo-adidas',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Adidas',
-    aliases: ['adidas ag'],
-    imageUrl:
-      'https://clipart-library.com/images_k/adidas-logo-transparent-background/adidas-logo-transparent-background-18.jpg'
-  },
-  {
-    id: 'logo-netflix',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Netflix',
-    aliases: ['netflix inc'],
-    imageUrl:
-      'https://flyclipart.com/thumb2/netflix-logo-png-transparent-image-png-arts-netflix-logo-png-82874.png'
-  },
-  {
-    id: 'logo-youtube',
-    mode: 'logos',
-    prompt: 'What company/platform owns this logo?',
-    answer: 'YouTube',
-    aliases: ['youtube', 'google'],
-    imageUrl:
-      'https://www.citypng.com/public/uploads/preview/hd-youtube-yt-triangle-symbol-logo-icon-sign-png-701751695118564ln4ifqdive.png?v=2026022712'
-  },
-  {
-    id: 'logo-pepsi',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Pepsi',
-    aliases: ['pepsico', 'pepsi cola'],
-    imageUrl:
-      'https://cdn.imgbin.com/8/1/18/imgbin-pepsi-one-pepsi-globe-pepsi-logo-transparent-pop-cola-logo-nXhAXKZWEcaZ7Bn6pPigw3CBV.jpg'
-  },
-  {
-    id: 'logo-google',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Google',
-    aliases: ['google llc', 'alphabet', 'alphabet inc'],
-    imageUrl:
-      'https://img.favpng.com/8/9/24/google-logo-googleplex-google-search-png-favpng-2dKLTw5sZPr0Kf5ZaicTNa1A0.jpg'
-  },
-  {
-    id: 'logo-microsoft',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'Microsoft',
-    aliases: ['microsoft corporation'],
-    imageUrl:
-      'https://toppng.com/uploads/preview/microsoft-logo-png-file-11660471229g9urax07s8.png'
-  },
-  {
-    id: 'logo-whatsapp',
-    mode: 'logos',
-    prompt: 'What company owns this logo?',
-    answer: 'WhatsApp',
-    aliases: ['whatsapp llc', 'meta', 'meta platforms'],
-    imageUrl:
-      'https://www.citypng.com/public/uploads/preview/hd-whatsapp-wa-whatsup-logo-icon-symbol-png-image-701751694789360nyvtqpljms.png'
-  },
-  {
-    id: 'logo-x',
-    mode: 'logos',
-    prompt: 'What platform/company does this logo represent?',
-    answer: 'X',
-    aliases: ['twitter', 'x corp', 'x.com'],
-    imageUrl:
-      'https://www.citypng.com/public/uploads/preview/hd-twitter-x-new-logo-png-735811696672788haniphkh2j.png?v=2026052119'
-  },
-
-  {
-    id: 'actor-tom-holland',
-    mode: 'actors',
-    prompt: 'Who is this actor?',
-    answer: 'Tom Holland',
-    aliases: ['thomas holland'],
-    imageUrl:
-      'https://image.tmdb.org/t/p/original/v8XswHtSvEscinZVxhTpYZ1KgIS.jpg'
-  },
-  {
-    id: 'actor-keanu-reeves',
-    mode: 'actors',
-    prompt: 'Who is this actor?',
-    answer: 'Keanu Reeves',
-    aliases: ['keanu'],
-    imageUrl:
-      'https://image.tmdb.org/t/p/original/qVS4Y3emBIfxqvlTFjFZOFb4kkK.jpg'
-  },
-  {
-    id: 'actor-dwayne-johnson',
-    mode: 'actors',
-    prompt: 'Who is this actor?',
-    answer: 'Dwayne Johnson',
-    aliases: ['the rock', 'dwayne the rock johnson'],
-    imageUrl:
-      'https://i.kym-cdn.com/entries/icons/original/000/018/124/therock.JPG'
-  },
-  {
-    id: 'actor-zendaya',
-    mode: 'actors',
-    prompt: 'Who is this actor?',
-    answer: 'Zendaya',
-    aliases: ['zendaya coleman'],
-    imageUrl:
-      'https://www.gethucinema.com/gcthumb/1760015621_Zendaya-92.jpg'
-  },
-
-  {
-    id: 'character-goku',
-    mode: 'characters',
-    prompt: 'Who is this character?',
-    answer: 'Goku',
-    aliases: ['son goku', 'kakarot'],
-    imageUrl:
-      'https://static.wikia.nocookie.net/dragon-ball-super1627/images/4/44/Goku_base_form.png/revision/latest?cb=20160410013838'
-  },
-  {
-    id: 'character-naruto',
-    mode: 'characters',
-    prompt: 'Who is this character?',
-    answer: 'Naruto',
-    aliases: ['naruto uzumaki'],
-    imageUrl:
-      'https://www.youloveit.ru/uploads/gallery/main/46/youloveit_ru_naruto106.jpg'
-  },
-  {
-    id: 'character-gojo',
-    mode: 'characters',
-    prompt: 'Who is this character?',
-    answer: 'Gojo',
-    aliases: ['satoru gojo', 'gojo satoru'],
-    imageUrl:
-      'https://i3.ruliweb.com/img/22/12/17/1851e52fe7434d9e5.jpg'
-  }
-];
 
 function pictureNormalize(value) {
   return String(value || '')
@@ -1092,6 +927,8 @@ function pictureModeLabel(mode) {
       return 'ACTORS';
     case PICTURE_MODES.characters:
       return 'CHARACTERS';
+    case PICTURE_MODES.flags:
+      return 'FLAGS';
     default:
       return 'MIXED';
   }
