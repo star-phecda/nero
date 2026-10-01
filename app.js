@@ -5424,8 +5424,14 @@ async function startNero() {
 
     // Recaps require actual WhatsApp history,
     // not just messages received while Nero is running.
-    browser: Browsers.macOS('Desktop'),
+    browser: Browsers.macOS('Chrome'),
     syncFullHistory: true,
+
+    // Explicitly accept all WhatsApp history-sync types.
+    // Baileys 7.x has had cases where history sync reports
+    // completion but drops the actual history events unless
+    // this hook allows them.
+    shouldSyncHistoryMessage: () => true,
   });
 
   sock.ev.on('creds.update', saveCreds);
