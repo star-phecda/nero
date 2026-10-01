@@ -4905,7 +4905,7 @@ function parseNeroRecapRequest(
 
   const match =
     clean.match(
-      /^!nero\\s+recap(?:\\s+(.+))?$/
+      /^!nero\s+recap(?:\s+(.+))?$/
     );
 
   if (!match) {
@@ -4930,7 +4930,7 @@ function parseNeroRecapRequest(
   }
 
   const countMatch =
-    arg.match(/^(\\d+)(k)?$/);
+    arg.match(/^(\d+)(k)?$/);
 
   if (countMatch) {
     let count =
@@ -4966,7 +4966,7 @@ function parseNeroRecapRequest(
 
   const timeMatch =
     arg.match(
-      /^(\\d+)\\s*(m|h|d)$/
+      /^(\d+)\s*(m|h|d)$/
     );
 
   if (timeMatch) {
@@ -4992,6 +4992,109 @@ function parseNeroRecapRequest(
     };
   }
 
+  return {
+    seconds: 21600,
+    label: 'the last 6 hours'
+  };
+}
+
+function parseNeroNaturalRecapRequest(
+  text,
+  historyLength
+) {
+  const clean =
+    String(text || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+
+  if (!clean || clean.startsWith('!')) {
+    return null;
+  }
+
+  // Natural history statistics.
+  const wantsStats =
+    clean === 'stats' ||
+    clean === 'history stats' ||
+    /\b(?:recap|summary|history)\b.*\b(?:stats?|statistics?|count|stored)\b/.test(clean) ||
+    /\bhow (?:many|much)\b.*\b(?:messages?|history)\b/.test(clean) ||
+    /\b(?:stored|saved)\s+(?:messages?|history)\b/.test(clean);
+
+  if (wantsStats) {
+    return {
+      stats: true
+    };
+  }
+
+  // Natural recap / catch-up requests.
+  const hasRecapIntent =
+    /\b(?:recap|summary|summarize|summarise|catch me up|fill me in|what did i miss|what have i missed|what happened|what has happened|what's happened|what has been happening|what's been happening|what is happening|what's going on|what is going on|anything important)\b/.test(clean);
+
+  if (!hasRecapIntent) {
+    return null;
+  }
+
+  // Today / yesterday.
+  if (/\b(?:today|yesterday)\b/.test(clean)) {
+    const day =
+      clean.includes('yesterday')
+        ? 'yesterday'
+        : 'today';
+
+    return parseNeroRecapRequest(
+      '!nero recap ' + day,
+      historyLength
+    );
+  }
+
+  // Natural time requests:
+  // "what happened in the last 2 hours?"
+  // "summary of the last 30 minutes"
+  // "recap the last 3 days"
+  const timeMatch =
+    clean.match(
+      /\b(\d+)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d)\b/
+    );
+
+  if (timeMatch) {
+    const amount = timeMatch[1];
+    const rawUnit = timeMatch[2];
+
+    const unit =
+      /^m/i.test(rawUnit)
+        ? 'm'
+        : /^h/i.test(rawUnit)
+          ? 'h'
+          : 'd';
+
+    return parseNeroRecapRequest(
+      '!nero recap ' + amount + unit,
+      historyLength
+    );
+  }
+
+  // Natural message-count requests:
+  // "recap the last 500 messages"
+  // "summary of the last 2k messages"
+  const countMatch =
+    clean.match(
+      /\b(?:last\s+)?(\d{1,5}(?:,\d{3})?)\s*(k|messages?|msgs?)\b/
+    );
+
+  if (countMatch) {
+    const rawCount =
+      countMatch[1].replace(/,/g, '');
+
+    return parseNeroRecapRequest(
+      '!nero recap ' +
+        rawCount +
+        (countMatch[2] === 'k' ? 'k' : ''),
+      historyLength
+    );
+  }
+
+  // Plain "recap", "summary", "what happened?",
+  // "what did I miss?", etc. → last 6 hours.
   return {
     seconds: 21600,
     label: 'the last 6 hours'
@@ -5375,6 +5478,15 @@ async function startNero() {
           message.key.participant?.split('@')[0] ||
           message.key.remoteJid?.split('@')[0] ||
           'Unknown';
+
+        // Persist live group messages for on-demand recaps.
+        addNeroGroupHistoryMessage(
+          jid,
+          message.key?.id,
+          sender,
+          text,
+          messageTimestamp
+        );
 
         const isMasterMessage = message.key?.fromMe === true;
 
@@ -5773,15 +5885,25 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
 
 
         // NERO ON-DEMAND GROUP RECAP
+        const recapRequest =
+          isGroup
+            ? (
+                parseNeroRecapRequest(
+                  text,
+                  getNeroGroupHistory(jid).length
+                ) ||
+                parseNeroNaturalRecapRequest(
+                  text,
+                  getNeroGroupHistory(jid).length
+                )
+              )
+            : null;
+
         if (
           isGroup &&
-          /^!nero\\s+recap(?:\\s+.+)?$/i.test(text)
+          recapRequest
         ) {
-          const request =
-            parseNeroRecapRequest(
-              text,
-              getNeroGroupHistory(jid).length
-            );
+          const request = recapRequest;
 
           if (request?.stats) {
             const count =
