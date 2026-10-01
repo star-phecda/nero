@@ -4718,6 +4718,516 @@ async function askGemini(
   );
 }
 
+
+
+// NERO HISTORY RECAP FINAL
+const NERO_GROUP_HISTORY_FILE =
+  process.cwd() + '/nero_group_history.json';
+
+const NERO_GROUP_HISTORY_LIMIT = 20000;
+const NERO_RECAP_MODEL_LIMIT = 1600;
+
+let neroGroupHistory = {};
+
+function loadNeroGroupHistory() {
+  try {
+    if (fs.existsSync(NERO_GROUP_HISTORY_FILE)) {
+      const data = JSON.parse(
+        fs.readFileSync(
+          NERO_GROUP_HISTORY_FILE,
+          'utf8'
+        )
+      );
+
+      if (data && typeof data === 'object') {
+        neroGroupHistory = data;
+      }
+    }
+  } catch (err) {
+    console.error(
+      '[NERO HISTORY] Load failed:',
+      err?.message || err
+    );
+    neroGroupHistory = {};
+  }
+}
+
+function saveNeroGroupHistory() {
+  try {
+    fs.writeFileSync(
+      NERO_GROUP_HISTORY_FILE,
+      JSON.stringify(neroGroupHistory),
+      'utf8'
+    );
+  } catch (err) {
+    console.error(
+      '[NERO HISTORY] Save failed:',
+      err?.message || err
+    );
+  }
+}
+
+function getNeroGroupHistory(jid) {
+  if (!neroGroupHistory[jid]) {
+    neroGroupHistory[jid] = [];
+  }
+
+  return neroGroupHistory[jid];
+}
+
+function addNeroGroupHistoryMessage(
+  jid,
+  id,
+  sender,
+  text,
+  timestamp
+) {
+  if (
+    !jid?.endsWith('@g.us') ||
+    !text?.trim()
+  ) {
+    return;
+  }
+
+  const clean = text.trim();
+  const lower = clean.toLowerCase();
+
+  // Don't pollute history with Nero control commands.
+  if (
+    lower.startsWith('!nero ') ||
+    lower === '!model' ||
+    lower.startsWith('!remember ') ||
+    lower === '!memory' ||
+    lower.startsWith('!forget ')
+  ) {
+    return;
+  }
+
+  const history =
+    getNeroGroupHistory(jid);
+
+  const messageId =
+    id ||
+    String(timestamp || Date.now()) +
+    ':' +
+    sender +
+    ':' +
+    clean;
+
+  if (
+    history.some(
+      item => item.id === messageId
+    )
+  ) {
+    return;
+  }
+
+  history.push({
+    id: messageId,
+    sender: sender || 'Unknown',
+    text: clean,
+    timestamp:
+      Number(timestamp) ||
+      Math.floor(Date.now() / 1000)
+  });
+
+  if (
+    history.length >
+    NERO_GROUP_HISTORY_LIMIT
+  ) {
+    history.splice(
+      0,
+      history.length -
+        NERO_GROUP_HISTORY_LIMIT
+    );
+  }
+
+  saveNeroGroupHistory();
+}
+
+function importNeroGroupHistory(messages) {
+  if (!Array.isArray(messages)) {
+    return;
+  }
+
+  for (const message of messages) {
+    try {
+      const jid =
+        message?.key?.remoteJid;
+
+      if (!jid?.endsWith('@g.us')) {
+        continue;
+      }
+
+      const text =
+        getText(message)?.trim();
+
+      if (!text) {
+        continue;
+      }
+
+      const sender =
+        message?.pushName ||
+        message?.key?.participant
+          ?.split('@')[0] ||
+        'Unknown';
+
+      addNeroGroupHistoryMessage(
+        jid,
+        message?.key?.id,
+        sender,
+        text,
+        Number(
+          message?.messageTimestamp || 0
+        )
+      );
+    } catch (_) {}
+  }
+}
+
+function parseNeroRecapRequest(
+  command,
+  historyLength
+) {
+  const clean =
+    String(command || '')
+      .trim()
+      .toLowerCase();
+
+  if (
+    clean ===
+    '!nero recap stats'
+  ) {
+    return {
+      stats: true
+    };
+  }
+
+  const match =
+    clean.match(
+      /^!nero\\s+recap(?:\\s+(.+))?$/
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  const arg =
+    (match[1] || '6h').trim();
+
+  if (arg === 'today') {
+    return {
+      seconds: 86400,
+      label: 'today'
+    };
+  }
+
+  if (arg === 'yesterday') {
+    return {
+      seconds: 172800,
+      label: 'the last 48 hours'
+    };
+  }
+
+  const countMatch =
+    arg.match(/^(\\d+)(k)?$/);
+
+  if (countMatch) {
+    let count =
+      Number(countMatch[1]);
+
+    if (countMatch[2]) {
+      count *= 1000;
+    }
+
+    count =
+      Math.min(
+        20000,
+        Math.max(
+          1,
+          count
+        )
+      );
+
+    count =
+      Math.min(
+        count,
+        historyLength
+      );
+
+    return {
+      count,
+      label:
+        'the last ' +
+        count.toLocaleString() +
+        ' stored messages'
+    };
+  }
+
+  const timeMatch =
+    arg.match(
+      /^(\\d+)\\s*(m|h|d)$/
+    );
+
+  if (timeMatch) {
+    const amount =
+      Number(timeMatch[1]);
+
+    const unit =
+      timeMatch[2];
+
+    const seconds =
+      unit === 'm'
+        ? amount * 60
+        : unit === 'h'
+          ? amount * 3600
+          : amount * 86400;
+
+    return {
+      seconds,
+      label:
+        'the last ' +
+        amount +
+        unit
+    };
+  }
+
+  return {
+    seconds: 21600,
+    label: 'the last 6 hours'
+  };
+}
+
+function selectNeroRecapMessages(
+  history,
+  request
+) {
+  let selected = history;
+
+  if (request.count != null) {
+    selected =
+      history.slice(
+        -request.count
+      );
+  } else if (
+    request.seconds != null
+  ) {
+    const cutoff =
+      Math.floor(
+        Date.now() / 1000
+      ) -
+      request.seconds;
+
+    selected =
+      history.filter(
+        item =>
+          Number(
+            item.timestamp || 0
+          ) >= cutoff
+      );
+  }
+
+  if (
+    selected.length <=
+    NERO_RECAP_MODEL_LIMIT
+  ) {
+    return selected;
+  }
+
+  // Preserve recent conversation while
+  // sampling older material.
+  const recentCount = 600;
+  const recent =
+    selected.slice(-recentCount);
+
+  const older =
+    selected.slice(
+      0,
+      -recentCount
+    );
+
+  const olderSlots =
+    NERO_RECAP_MODEL_LIMIT -
+    recent.length;
+
+  const sampled = [];
+
+  if (olderSlots > 0) {
+    const step =
+      older.length /
+      olderSlots;
+
+    for (
+      let i = 0;
+      i < olderSlots;
+      i++
+    ) {
+      sampled.push(
+        older[
+          Math.min(
+            older.length - 1,
+            Math.floor(i * step)
+          )
+        ]
+      );
+    }
+  }
+
+  return sampled.concat(recent);
+}
+
+function buildNeroRecapPrompt(
+  messages,
+  label
+) {
+  const transcript =
+    messages
+      .map(item => {
+        const date =
+          new Date(
+            Number(
+              item.timestamp || 0
+            ) * 1000
+          );
+
+        return (
+          '[' +
+          (
+            Number.isNaN(
+              date.getTime()
+            )
+              ? ''
+              : date.toISOString()
+          ) +
+          '] ' +
+          item.sender +
+          ': ' +
+          item.text
+        );
+      })
+      .join('\\n');
+
+  return (
+    'You are Nero, an AI member of a WhatsApp group. ' +
+    'Give the group a useful recap of ' +
+    label +
+    '.\\n\\n' +
+
+    'Focus on important conversations, events, plans, decisions, ' +
+    'questions, jokes or recurring inside references, disagreements, ' +
+    'and unresolved topics. Do not invent information. ' +
+    'Use concise headings and bullets where useful.\\n\\n' +
+
+    'GROUP CONVERSATION:\\n' +
+    transcript
+  );
+}
+
+async function askNeroRecap(
+  jid,
+  prompt
+) {
+  const started = Date.now();
+  const selected =
+    getNeroSelectedModel(jid);
+
+  if (
+    selected &&
+    selected !== 'auto'
+  ) {
+    try {
+      return await askNeroSelectedModel(
+        selected,
+        prompt,
+        started
+      );
+    } catch (err) {
+      console.log(
+        '[NERO RECAP] Preferred model failed:',
+        err?.message || err
+      );
+    }
+  }
+
+  const providers = [
+    () =>
+      askGeminiDirect(
+        prompt,
+        MODEL,
+        started
+      ),
+
+    () =>
+      askGeminiDirect(
+        prompt,
+        FALLBACK_MODEL,
+        started
+      ),
+
+    () =>
+      askGroq(
+        prompt,
+        started
+      ),
+
+    () =>
+      askOpenRouter(
+        prompt,
+        started
+      ),
+
+    () =>
+      askNvidiaNim(
+        prompt,
+        started
+      ),
+
+    () =>
+      askCloudflare(
+        prompt,
+        started
+      ),
+
+    () =>
+      askMistral(
+        prompt,
+        started
+      )
+  ];
+
+  let lastError;
+
+  for (const provider of providers) {
+    try {
+      const result =
+        await provider();
+
+      if (
+        result &&
+        String(result).trim()
+      ) {
+        return result;
+      }
+    } catch (err) {
+      lastError = err;
+
+      console.log(
+        '[NERO RECAP] Provider failed:',
+        err?.message || err
+      );
+    }
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      'No AI provider returned text.'
+    )
+  );
+}
+
+loadNeroGroupHistory();
+
 async function startNero() {
   neroConnectionStartTime = Math.floor(Date.now() / 1000);
   const { state, saveCreds } =
@@ -4732,6 +5242,13 @@ async function startNero() {
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on(
+    'messaging-history.set',
+    ({ messages }) => {
+      importNeroGroupHistory(messages);
+    }
+  );
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr && !pairingRequested) {
@@ -5250,6 +5767,113 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
               ? 'Forgot it.'
               : 'I could not find that memory.'
           );
+
+          continue;
+        }
+
+
+        // NERO ON-DEMAND GROUP RECAP
+        if (
+          isGroup &&
+          /^!nero\\s+recap(?:\\s+.+)?$/i.test(text)
+        ) {
+          const request =
+            parseNeroRecapRequest(
+              text,
+              getNeroGroupHistory(jid).length
+            );
+
+          if (request?.stats) {
+            const count =
+              getNeroGroupHistory(jid).length;
+
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  '🧠 Nero history: ' +
+                  count.toLocaleString() +
+                  ' stored messages for this group.\\n' +
+                  'Ceiling: 20,000 messages.'
+              }
+            );
+
+            continue;
+          }
+
+          const history =
+            getNeroGroupHistory(jid);
+
+          const selected =
+            selectNeroRecapMessages(
+              history,
+              request || {
+                seconds: 21600,
+                label: 'the last 6 hours'
+              }
+            );
+
+          if (!selected.length) {
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  'I do not have stored messages for that period yet.'
+              }
+            );
+
+            continue;
+          }
+
+          try {
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  'Give me a moment, Master. I am reading the stored conversation...'
+              }
+            );
+
+            const prompt =
+              buildNeroRecapPrompt(
+                selected,
+                request?.label ||
+                  'the requested period'
+              );
+
+            const recap =
+              await askNeroRecap(
+                jid,
+                prompt
+              );
+
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  '📝 NERO RECAP — ' +
+                  (
+                    request?.label ||
+                    'requested period'
+                  ) +
+                  '\\n\\n' +
+                  String(recap).trim()
+              }
+            );
+          } catch (err) {
+            console.error(
+              '[NERO RECAP] Failed:',
+              err?.message || err
+            );
+
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  'I could not prepare the recap right now. My stored history is safe; an AI provider failed to answer.'
+              }
+            );
+          }
 
           continue;
         }

@@ -7,3 +7,4 @@ auth_info_baileys.backup-*/
 nero-log.txt
 
 app.js.before-*
+nero_group_history.json
