@@ -669,6 +669,15 @@ async function handleTriviaMessage({ sock, jid, message, text }) {
 
   if (!input) return false;
 
+  const pictureHandled = await handlePictureTriviaMessage({
+    sock,
+    jid,
+    message,
+    text
+  });
+
+  if (pictureHandled) return true;
+
   const lower = input.toLowerCase();
 
   if (
@@ -837,6 +846,715 @@ ${scoreBoard(game)}`
 
     return true;
   }
+
+  return true;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Picture Trivia                                                             */
+/* -------------------------------------------------------------------------- */
+
+const pictureGames = new Map();
+
+const PICTURE_POINTS = 100;
+const PICTURE_ROUND_SECONDS = 15;
+const PICTURE_NEXT_ROUND_DELAY_MS = 1200;
+
+const PICTURE_MODES = {
+  logos: 'logos',
+  actors: 'actors',
+  characters: 'characters',
+  mixed: 'mixed'
+};
+
+const PICTURE_MODE_ALIASES = new Map([
+  ['logo', 'logos'],
+  ['logos', 'logos'],
+  ['brand', 'logos'],
+  ['brands', 'logos'],
+  ['company', 'logos'],
+  ['companies', 'logos'],
+  ['actor', 'actors'],
+  ['actors', 'actors'],
+  ['character', 'characters'],
+  ['characters', 'characters'],
+  ['anime', 'characters'],
+  ['mixed', 'mixed'],
+  ['random', 'mixed']
+]);
+
+const PICTURE_QUESTIONS = [
+  {
+    id: 'logo-nike',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Nike',
+    aliases: ['nike inc', 'nike incorporated'],
+    imageUrl:
+      'https://i.pinimg.com/originals/08/c7/a6/08c7a6367523a3cee26872dc74221ce3.png'
+  },
+  {
+    id: 'logo-coke',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Coca-Cola',
+    aliases: ['coca cola', 'coca-cola company'],
+    imageUrl:
+      'https://toppng.com/uploads/preview/coca-cola-food-png-photo-11665525695sc7kexwtva.png'
+  },
+  {
+    id: 'logo-mcdonalds',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: "McDonald's",
+    aliases: ['mcdonalds', 'mcdonalds corporation', 'mcdonald'],
+    imageUrl:
+      'https://www.citypng.com/public/uploads/preview/mcdonalds-yellow-m-symbol-logo-high-resolution-70175169479008933cofjbaaw.png?v=2026032110'
+  },
+  {
+    id: 'logo-apple',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Apple',
+    aliases: ['apple inc', 'apple incorporated'],
+    imageUrl:
+      'https://p7.hiclipart.com/preview/180/516/952/apple-logo-computer-icons-clip-art-iphone-apple.jpg'
+  },
+  {
+    id: 'logo-adidas',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Adidas',
+    aliases: ['adidas ag'],
+    imageUrl:
+      'https://clipart-library.com/images_k/adidas-logo-transparent-background/adidas-logo-transparent-background-18.jpg'
+  },
+  {
+    id: 'logo-netflix',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Netflix',
+    aliases: ['netflix inc'],
+    imageUrl:
+      'https://flyclipart.com/thumb2/netflix-logo-png-transparent-image-png-arts-netflix-logo-png-82874.png'
+  },
+  {
+    id: 'logo-youtube',
+    mode: 'logos',
+    prompt: 'What company/platform owns this logo?',
+    answer: 'YouTube',
+    aliases: ['youtube', 'google'],
+    imageUrl:
+      'https://www.citypng.com/public/uploads/preview/hd-youtube-yt-triangle-symbol-logo-icon-sign-png-701751695118564ln4ifqdive.png?v=2026022712'
+  },
+  {
+    id: 'logo-pepsi',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Pepsi',
+    aliases: ['pepsico', 'pepsi cola'],
+    imageUrl:
+      'https://cdn.imgbin.com/8/1/18/imgbin-pepsi-one-pepsi-globe-pepsi-logo-transparent-pop-cola-logo-nXhAXKZWEcaZ7Bn6pPigw3CBV.jpg'
+  },
+  {
+    id: 'logo-google',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Google',
+    aliases: ['google llc', 'alphabet', 'alphabet inc'],
+    imageUrl:
+      'https://img.favpng.com/8/9/24/google-logo-googleplex-google-search-png-favpng-2dKLTw5sZPr0Kf5ZaicTNa1A0.jpg'
+  },
+  {
+    id: 'logo-microsoft',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'Microsoft',
+    aliases: ['microsoft corporation'],
+    imageUrl:
+      'https://toppng.com/uploads/preview/microsoft-logo-png-file-11660471229g9urax07s8.png'
+  },
+  {
+    id: 'logo-whatsapp',
+    mode: 'logos',
+    prompt: 'What company owns this logo?',
+    answer: 'WhatsApp',
+    aliases: ['whatsapp llc', 'meta', 'meta platforms'],
+    imageUrl:
+      'https://www.citypng.com/public/uploads/preview/hd-whatsapp-wa-whatsup-logo-icon-symbol-png-image-701751694789360nyvtqpljms.png'
+  },
+  {
+    id: 'logo-x',
+    mode: 'logos',
+    prompt: 'What platform/company does this logo represent?',
+    answer: 'X',
+    aliases: ['twitter', 'x corp', 'x.com'],
+    imageUrl:
+      'https://www.citypng.com/public/uploads/preview/hd-twitter-x-new-logo-png-735811696672788haniphkh2j.png?v=2026052119'
+  },
+
+  {
+    id: 'actor-tom-holland',
+    mode: 'actors',
+    prompt: 'Who is this actor?',
+    answer: 'Tom Holland',
+    aliases: ['thomas holland'],
+    imageUrl:
+      'https://image.tmdb.org/t/p/original/v8XswHtSvEscinZVxhTpYZ1KgIS.jpg'
+  },
+  {
+    id: 'actor-keanu-reeves',
+    mode: 'actors',
+    prompt: 'Who is this actor?',
+    answer: 'Keanu Reeves',
+    aliases: ['keanu'],
+    imageUrl:
+      'https://image.tmdb.org/t/p/original/qVS4Y3emBIfxqvlTFjFZOFb4kkK.jpg'
+  },
+  {
+    id: 'actor-dwayne-johnson',
+    mode: 'actors',
+    prompt: 'Who is this actor?',
+    answer: 'Dwayne Johnson',
+    aliases: ['the rock', 'dwayne the rock johnson'],
+    imageUrl:
+      'https://i.kym-cdn.com/entries/icons/original/000/018/124/therock.JPG'
+  },
+  {
+    id: 'actor-zendaya',
+    mode: 'actors',
+    prompt: 'Who is this actor?',
+    answer: 'Zendaya',
+    aliases: ['zendaya coleman'],
+    imageUrl:
+      'https://www.gethucinema.com/gcthumb/1760015621_Zendaya-92.jpg'
+  },
+
+  {
+    id: 'character-goku',
+    mode: 'characters',
+    prompt: 'Who is this character?',
+    answer: 'Goku',
+    aliases: ['son goku', 'kakarot'],
+    imageUrl:
+      'https://static.wikia.nocookie.net/dragon-ball-super1627/images/4/44/Goku_base_form.png/revision/latest?cb=20160410013838'
+  },
+  {
+    id: 'character-naruto',
+    mode: 'characters',
+    prompt: 'Who is this character?',
+    answer: 'Naruto',
+    aliases: ['naruto uzumaki'],
+    imageUrl:
+      'https://www.youloveit.ru/uploads/gallery/main/46/youloveit_ru_naruto106.jpg'
+  },
+  {
+    id: 'character-gojo',
+    mode: 'characters',
+    prompt: 'Who is this character?',
+    answer: 'Gojo',
+    aliases: ['satoru gojo', 'gojo satoru'],
+    imageUrl:
+      'https://i3.ruliweb.com/img/22/12/17/1851e52fe7434d9e5.jpg'
+  }
+];
+
+function pictureNormalize(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
+}
+
+function pictureAnswerMatches(question, input) {
+  const normalized = pictureNormalize(input);
+
+  if (!normalized) return false;
+
+  return [
+    question.answer,
+    ...(question.aliases || [])
+  ].some(
+    candidate =>
+      pictureNormalize(candidate) === normalized
+  );
+}
+
+function pictureModeLabel(mode) {
+  switch (mode) {
+    case PICTURE_MODES.logos:
+      return 'LOGOS';
+    case PICTURE_MODES.actors:
+      return 'ACTORS';
+    case PICTURE_MODES.characters:
+      return 'CHARACTERS';
+    default:
+      return 'MIXED';
+  }
+}
+
+function picturePool(mode) {
+  return PICTURE_QUESTIONS.filter(
+    question =>
+      mode === PICTURE_MODES.mixed ||
+      question.mode === mode
+  );
+}
+
+function picturePickQuestion(game) {
+  const pool = picturePool(game.mode);
+
+  const available = pool.filter(
+    question =>
+      !game.usedQuestionIds.has(question.id)
+  );
+
+  if (!available.length) {
+    game.usedQuestionIds.clear();
+    return pool[
+      Math.floor(Math.random() * pool.length)
+    ] || null;
+  }
+
+  return available[
+    Math.floor(Math.random() * available.length)
+  ] || null;
+}
+
+function pictureClearTimer(game) {
+  if (game.timer) {
+    clearTimeout(game.timer);
+    game.timer = null;
+  }
+}
+
+function pictureScoreBoard(game) {
+  const players = [...game.players.values()]
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+
+  if (!players.length) return 'No points yet.';
+
+  return players.map((player, index) => {
+    const prefix =
+      index === 0 ? '🥇' :
+      index === 1 ? '🥈' :
+      index === 2 ? '🥉' :
+      String(index + 1) + '.';
+
+    return (
+      prefix +
+      ' ' +
+      player.name +
+      ' — ' +
+      player.score +
+      ' pts'
+    );
+  }).join('\n');
+}
+
+async function sendPictureMessage(
+  sock,
+  jid,
+  question,
+  caption
+) {
+  const sent = await sock.sendMessage(
+    jid,
+    {
+      image: { url: question.imageUrl },
+      caption
+    }
+  );
+
+  if (sent?.key?.id) {
+    botSentMessageIds.add(sent.key.id);
+
+    if (botSentMessageIds.size > 500) {
+      const first =
+        botSentMessageIds.values().next().value;
+
+      botSentMessageIds.delete(first);
+    }
+  }
+
+  return sent;
+}
+
+function parsePictureStartCommand(input) {
+  const lower = String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[!?]+$/g, '')
+    .trim();
+
+  const aliases = [
+    '!pictrivia',
+    'pictrivia',
+    '!picture trivia',
+    'picture trivia',
+    '!picturetrivia',
+    'picturetrivia',
+    '!pic trivia',
+    'pic trivia'
+  ];
+
+  const matched = aliases.find(
+    alias =>
+      lower === alias ||
+      lower.startsWith(alias + ' ')
+  );
+
+  if (!matched) return null;
+
+  const remainder = lower
+    .slice(matched.length)
+    .trim();
+
+  let rounds = 10;
+  let mode = PICTURE_MODES.mixed;
+
+  for (const token of remainder.split(/\s+/).filter(Boolean)) {
+    if (/^\d+$/.test(token)) {
+      const amount = Number(token);
+
+      if (amount >= 1 && amount <= 50) {
+        rounds = amount;
+      }
+
+      continue;
+    }
+
+    if (PICTURE_MODE_ALIASES.has(token)) {
+      mode = PICTURE_MODE_ALIASES.get(token);
+    }
+  }
+
+  return { rounds, mode };
+}
+
+async function finishPictureGame(sock, jid, game) {
+  pictureClearTimer(game);
+
+  game.phase = 'finished';
+
+  await sendTriviaMessage(
+    sock,
+    jid,
+    '🏁 **PICTURE TRIVIA COMPLETE!**\n\n' +
+    'Mode: **' + pictureModeLabel(game.mode) + '**\n' +
+    'Rounds: **' + game.totalRounds + '**\n\n' +
+    '📊 **Final Scoreboard**\n\n' +
+    pictureScoreBoard(game) +
+    '\n\n🎉 Type **!pictrivia** to play again.'
+  );
+
+  pictureGames.delete(jid);
+}
+
+async function startPictureRound(sock, jid, game) {
+  pictureClearTimer(game);
+
+  if (game.round > game.totalRounds) {
+    await finishPictureGame(sock, jid, game);
+    return;
+  }
+
+  const question = picturePickQuestion(game);
+
+  if (!question) {
+    await sendTriviaMessage(
+      sock,
+      jid,
+      '❌ No picture questions are available for this mode yet.'
+    );
+
+    pictureGames.delete(jid);
+    return;
+  }
+
+  game.currentQuestion = question;
+  game.usedQuestionIds.add(question.id);
+  game.phase = 'question';
+  game.answerAttempts = new Set();
+  game.startedAt = Date.now();
+
+  const caption =
+    '🖼️ **PICTURE TRIVIA — ROUND ' +
+    game.round +
+    '/' +
+    game.totalRounds +
+    '**\n\n' +
+    '🎯 ' + question.prompt + '\n\n' +
+    '⏱️ **' + PICTURE_ROUND_SECONDS + ' seconds**\n' +
+    '🏆 First correct answer gets **' +
+    PICTURE_POINTS +
+    ' points!**';
+
+  try {
+    await sendPictureMessage(
+      sock,
+      jid,
+      question,
+      caption
+    );
+  } catch (error) {
+    console.error(
+      '[PICTURE TRIVIA] Image send failed:',
+      error.message
+    );
+
+    await sendTriviaMessage(
+      sock,
+      jid,
+      '⚠️ That picture could not be loaded. Skipping to the next one.'
+    );
+
+    game.round += 1;
+    game.currentQuestion = null;
+
+    setTimeout(
+      () => startPictureRound(sock, jid, game),
+      400
+    );
+
+    return;
+  }
+
+  game.timer = setTimeout(
+    () => handlePictureTimeout(sock, jid, game),
+    PICTURE_ROUND_SECONDS * 1000
+  );
+}
+
+async function handlePictureTimeout(sock, jid, game) {
+  if (game.phase !== 'question') return;
+
+  pictureClearTimer(game);
+  game.phase = 'between';
+
+  const question = game.currentQuestion;
+
+  await sendTriviaMessage(
+    sock,
+    jid,
+    '⌛ **TIME!**\n\n' +
+    'Answer: **' + question.answer + '**\n\n' +
+    '📊 **Scoreboard**\n\n' +
+    pictureScoreBoard(game)
+  );
+
+  game.round += 1;
+  game.currentQuestion = null;
+
+  setTimeout(
+    () => startPictureRound(sock, jid, game),
+    PICTURE_NEXT_ROUND_DELAY_MS
+  );
+}
+
+async function startPictureGame(
+  sock,
+  jid,
+  message,
+  rounds,
+  mode
+) {
+  if (pictureGames.has(jid)) {
+    await sendTriviaMessage(
+      sock,
+      jid,
+      'A Picture Trivia game is already running here.'
+    );
+    return;
+  }
+
+  if (!picturePool(mode).length) {
+    await sendTriviaMessage(
+      sock,
+      jid,
+      '❌ That picture category is not available yet.'
+    );
+    return;
+  }
+
+  const game = {
+    jid,
+    starter: getSenderId(message),
+    starterName: getDisplayName(message),
+    mode,
+    totalRounds: rounds,
+    round: 1,
+    phase: 'starting',
+    currentQuestion: null,
+    startedAt: null,
+    timer: null,
+    answerAttempts: new Set(),
+    usedQuestionIds: new Set(),
+    players: new Map()
+  };
+
+  pictureGames.set(jid, game);
+
+  await sendTriviaMessage(
+    sock,
+    jid,
+    '🖼️ **PICTURE TRIVIA**\n\n' +
+    game.starterName +
+    ' started **' +
+    rounds +
+    ' rounds** of **' +
+    pictureModeLabel(mode) +
+    '**!\n\n' +
+    '👀 Look at the picture.\n' +
+    '⚡ First correct answer wins the round.\n' +
+    '🏆 Each win = **' +
+    PICTURE_POINTS +
+    ' points**.'
+  );
+
+  setTimeout(
+    () => startPictureRound(sock, jid, game),
+    900
+  );
+}
+
+async function handlePictureTriviaMessage({
+  sock,
+  jid,
+  message,
+  text
+}) {
+  if (!jid || !message) return false;
+
+  if (isBotMessage(message)) {
+    return true;
+  }
+
+  const input = String(text || '').trim();
+  const lower = input.toLowerCase();
+
+  if (
+    lower === '!pictrivia stop' ||
+    lower === '!pictrivia cancel' ||
+    lower === 'picture trivia stop' ||
+    lower === 'pic trivia stop'
+  ) {
+    const game = pictureGames.get(jid);
+
+    if (!game) {
+      return false;
+    }
+
+    pictureClearTimer(game);
+    pictureGames.delete(jid);
+
+    await sendTriviaMessage(
+      sock,
+      jid,
+      '🛑 Picture Trivia cancelled.'
+    );
+
+    return true;
+  }
+
+  const start = parsePictureStartCommand(input);
+
+  if (start) {
+    await startPictureGame(
+      sock,
+      jid,
+      message,
+      start.rounds,
+      start.mode
+    );
+
+    return true;
+  }
+
+  const game = pictureGames.get(jid);
+
+  if (!game) return false;
+
+  if (game.phase !== 'question') {
+    return true;
+  }
+
+  const senderId = getSenderId(message);
+
+  if (game.answerAttempts.has(senderId)) {
+    return true;
+  }
+
+  game.answerAttempts.add(senderId);
+
+  const playerName = getDisplayName(message);
+
+  if (!game.players.has(senderId)) {
+    game.players.set(senderId, {
+      name: playerName,
+      score: 0
+    });
+  }
+
+  const player = game.players.get(senderId);
+
+  if (
+    !pictureAnswerMatches(
+      game.currentQuestion,
+      input
+    )
+  ) {
+    return true;
+  }
+
+  pictureClearTimer(game);
+  game.phase = 'between';
+
+  player.name = playerName;
+  player.score += PICTURE_POINTS;
+
+  const elapsed = Math.max(
+    0,
+    Date.now() - game.startedAt
+  );
+
+  const seconds =
+    (elapsed / 1000).toFixed(1);
+
+  await sendTriviaMessage(
+    sock,
+    jid,
+    '✅ **' + playerName + ' got it!**\n\n' +
+    'Answer: **' +
+    game.currentQuestion.answer +
+    '**\n' +
+    '⚡ Time: **' +
+    seconds +
+    's**\n' +
+    '🏆 **+' +
+    PICTURE_POINTS +
+    ' points**\n\n' +
+    '📊 **Scoreboard**\n\n' +
+    pictureScoreBoard(game)
+  );
+
+  game.round += 1;
+  game.currentQuestion = null;
+
+  setTimeout(
+    () => startPictureRound(sock, jid, game),
+    PICTURE_NEXT_ROUND_DELAY_MS
+  );
 
   return true;
 }
