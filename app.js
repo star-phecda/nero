@@ -3685,6 +3685,161 @@ async function askOpenRouter(prompt, started) {
   return reply;
 }
 
+async function askNvidiaNim(prompt, started) {
+  const apiKey =
+    process.env.NVIDIA_NIM_API_KEY ||
+    process.env.NVIDIA_API_KEY ||
+    process.env.NIM_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      'NVIDIA_NIM_API_KEY is missing. NVIDIA NIM is unavailable.'
+    );
+  }
+
+  const model =
+    process.env.NVIDIA_NIM_MODEL ||
+    'nvidia/nemotron-3-super-120b-a12b';
+
+  const baseUrl =
+    process.env.NVIDIA_NIM_BASE_URL ||
+    'https://integrate.api.nvidia.com/v1';
+
+  const response = await fetch(
+    baseUrl + '/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 256
+      })
+    }
+  );
+
+  if (!response.ok) {
+    let details = '';
+
+    try {
+      const data = await response.json();
+      details =
+        data?.error?.message ||
+        data?.message ||
+        '';
+    } catch {}
+
+    const error = new Error(
+      'NVIDIA NIM request failed (' +
+      response.status +
+      ')' +
+      (details ? ': ' + details : '.')
+    );
+
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+
+  const reply =
+    data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error(
+      'NVIDIA NIM returned no text.'
+    );
+  }
+
+  console.log(
+    '[NVIDIA NIM] ' +
+    model +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
+async function askMistral(prompt, started = Date.now()) {
+  const apiKey = process.env.MISTRAL_API_KEY;
+  const baseUrl =
+    process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1';
+  const model =
+    process.env.MISTRAL_MODEL || 'mistral-small-latest';
+
+  if (!apiKey) {
+    throw new Error('MISTRAL_API_KEY is missing');
+  }
+
+  const response = await fetch(
+    baseUrl + '/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 256
+      })
+    }
+  );
+
+  const raw = await response.text();
+
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch (_) {}
+
+  if (!response.ok) {
+    const message =
+      data?.error?.message ||
+      raw ||
+      ('HTTP ' + response.status);
+
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+
+  const reply =
+    data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error('Mistral returned no text.');
+  }
+
+  console.log(
+    '[MISTRAL] ' +
+    model +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
 async function askGemini(sock, jid, sender, text) {
   const started = Date.now();
 
@@ -3789,7 +3944,48 @@ async function askGemini(sock, jid, sender, text) {
     '[NERO LLM] Groq is unavailable. Switching to OpenRouter.'
   );
 
-  return await askOpenRouter(
+  try {
+    return await askOpenRouter(
+      prompt,
+      started
+    );
+  } catch (error) {
+    console.error(
+      '[OPENROUTER] Failed: ' +
+      String(error?.message || error)
+    );
+
+    if (
+      !isNeroProviderFallbackError(error) &&
+      !/OPENROUTER_API_KEY is missing/i.test(
+        String(error?.message || error)
+      )
+    ) {
+      throw error;
+    }
+  }
+
+  console.log(
+    '[NERO LLM] OpenRouter is unavailable. Switching to NVIDIA NIM.'
+  );
+
+  try {
+    return await askNvidiaNim(
+      prompt,
+      started
+    );
+  } catch (error) {
+    console.error(
+      '[NVIDIA NIM] Failed: ' +
+      String(error?.message || error)
+    );
+  }
+
+  console.log(
+    '[NERO LLM] NVIDIA NIM is unavailable. Switching to Mistral.'
+  );
+
+  return await askMistral(
     prompt,
     started
   );
