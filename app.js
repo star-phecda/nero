@@ -45,6 +45,216 @@ const processedMessageIds = new Set();
 let neroConnectionStartTime = 0;
 const botSentMessageIds = new Set();
 
+const NERO_MODEL_SETTINGS_FILE =
+  process.cwd() + '/nero_model_settings.json';
+
+let neroModelSettings = {};
+
+let neroQuotaState = {
+  groq: null
+};
+
+const NERO_MODEL_CATALOG = [
+  {
+    key: 'auto',
+    provider: 'Nero',
+    label: 'Automatic fallback',
+    model: null
+  },
+  {
+    key: 'gemini_primary',
+    provider: 'Google',
+    label: 'Gemini primary',
+    model: MODEL
+  },
+  {
+    key: 'gemini_fallback',
+    provider: 'Google',
+    label: 'Gemini fallback',
+    model: FALLBACK_MODEL
+  },
+  {
+    key: 'groq_qwen',
+    provider: 'Groq',
+    label: 'Qwen 3.8 27B',
+    model:
+      process.env.GROQ_MODEL ||
+      'qwen/qwen3.8-27b'
+  },
+  {
+    key: 'openrouter_nemotron',
+    provider: 'OpenRouter',
+    label: 'Nemotron 3 Ultra 550B',
+    model:
+      process.env.NERO_OPENROUTER_MODEL ||
+      'nvidia/nemotron-3-ultra-550b-a55b:free'
+  },
+  {
+    key: 'nvidia_nemotron',
+    provider: 'NVIDIA NIM',
+    label: 'Nemotron 3 Super 120B',
+    model:
+      process.env.NVIDIA_NIM_MODEL ||
+      'nvidia/nemotron-3-super-120b-a12b'
+  },
+  {
+    key: 'cloudflare_glm',
+    provider: 'Cloudflare',
+    label: 'GLM-4.7-Flash',
+    model:
+      process.env.CLOUDFLARE_MODEL ||
+      '@cf/zai-org/glm-4.7-flash'
+  },
+  {
+    key: 'mistral_small',
+    provider: 'Mistral',
+    label: 'Mistral Small 4',
+    model:
+      process.env.MISTRAL_MODEL ||
+      'mistral-small-latest'
+  }
+];
+
+function loadNeroModelSettings() {
+  try {
+    if (
+      fs.existsSync(
+        NERO_MODEL_SETTINGS_FILE
+      )
+    ) {
+      const saved =
+        JSON.parse(
+          fs.readFileSync(
+            NERO_MODEL_SETTINGS_FILE,
+            'utf8'
+          )
+        );
+
+      if (
+        saved &&
+        typeof saved === 'object'
+      ) {
+        neroModelSettings = saved;
+      }
+    }
+  } catch (error) {
+    console.log(
+      '[MODEL] Load error:',
+      error.message
+    );
+  }
+}
+
+function saveNeroModelSettings() {
+  try {
+    fs.writeFileSync(
+      NERO_MODEL_SETTINGS_FILE,
+      JSON.stringify(
+        neroModelSettings,
+        null,
+        2
+      ),
+      'utf8'
+    );
+  } catch (error) {
+    console.log(
+      '[MODEL] Save error:',
+      error.message
+    );
+  }
+}
+
+function getNeroSelectedModel(jid) {
+  return (
+    neroModelSettings[jid] ||
+    'auto'
+  );
+}
+
+function setNeroSelectedModel(
+  jid,
+  key
+) {
+  if (
+    !key ||
+    key === 'auto'
+  ) {
+    delete neroModelSettings[jid];
+  } else {
+    neroModelSettings[jid] = key;
+  }
+
+  saveNeroModelSettings();
+}
+
+function getNeroModelInfo(key) {
+  return (
+    NERO_MODEL_CATALOG.find(
+      model => model.key === key
+    ) ||
+    NERO_MODEL_CATALOG[0]
+  );
+}
+
+function neroQuotaText(key) {
+  if (key === 'groq_qwen') {
+    const quota =
+      neroQuotaState.groq;
+
+    if (!quota) {
+      return 'Live quota appears after a Groq request';
+    }
+
+    const requests =
+      quota.remainingRequests != null &&
+      quota.limitRequests != null
+        ? quota.remainingRequests +
+          '/' +
+          quota.limitRequests +
+          ' requests'
+        : 'request quota available';
+
+    const tokens =
+      quota.remainingTokens != null &&
+      quota.limitTokens != null
+        ? quota.remainingTokens +
+          '/' +
+          quota.limitTokens +
+          ' tokens'
+        : 'token quota available';
+
+    return requests + ' • ' + tokens;
+  }
+
+  if (key === 'cloudflare_glm') {
+    return '10,000 Neurons/day allocation';
+  }
+
+  if (
+    key === 'gemini_primary' ||
+    key === 'gemini_fallback'
+  ) {
+    return 'Project quota • check Google AI Studio';
+  }
+
+  if (key === 'mistral_small') {
+    return 'Account limits • check Mistral Studio';
+  }
+
+  if (key === 'nvidia_nemotron') {
+    return 'Free prototyping • rate limited';
+  }
+
+  if (key === 'openrouter_nemotron') {
+    return 'Provider/model limit';
+  }
+
+  return 'Automatic provider fallback';
+}
+
+loadNeroModelSettings();
+
+
 // NERO LONG-TERM MEMORY
 const NERO_MEMORY_FILE = process.cwd() + '/nero_memory.json';
 
@@ -3085,7 +3295,9 @@ function getInteractiveReplyId(message) {
       return (
         params.id ||
         params.selected_id ||
+        params.selected_id ||
         params.row_id ||
+        params.selected_row_id ||
         params.selectedRowId ||
         null
       );
@@ -3527,7 +3739,11 @@ function isNeroProviderFallbackError(error) {
   );
 }
 
-async function askGroq(prompt, started) {
+async function askGroq(
+  prompt,
+  started,
+  modelOverride = null
+) {
   const groqApiKey = process.env.GROQ_API_KEY;
 
   if (!groqApiKey) {
@@ -3537,7 +3753,9 @@ async function askGroq(prompt, started) {
   }
 
   const groqModel =
-    process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
+    modelOverride ||
+    process.env.GROQ_MODEL ||
+    'qwen/qwen3.8-27b';
 
   const response = await fetch(
     'https://api.groq.com/openai/v1/chat/completions',
@@ -3561,6 +3779,46 @@ async function askGroq(prompt, started) {
       })
     }
   );
+
+  neroQuotaState.groq = {
+    limitRequests:
+      Number(
+        response.headers.get(
+          'x-ratelimit-limit-requests'
+        )
+      ) || null,
+
+    remainingRequests:
+      Number(
+        response.headers.get(
+          'x-ratelimit-remaining-requests'
+        )
+      ) || null,
+
+    limitTokens:
+      Number(
+        response.headers.get(
+          'x-ratelimit-limit-tokens'
+        )
+      ) || null,
+
+    remainingTokens:
+      Number(
+        response.headers.get(
+          'x-ratelimit-remaining-tokens'
+        )
+      ) || null,
+
+    resetRequests:
+      response.headers.get(
+        'x-ratelimit-reset-requests'
+      ) || null,
+
+    resetTokens:
+      response.headers.get(
+        'x-ratelimit-reset-tokens'
+      ) || null
+  };
 
   if (!response.ok) {
     let details = '';
@@ -3604,7 +3862,11 @@ async function askGroq(prompt, started) {
   return reply;
 }
 
-async function askOpenRouter(prompt, started) {
+async function askOpenRouter(
+  prompt,
+  started,
+  modelOverride = null
+) {
   const apiKey = process.env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
@@ -3614,6 +3876,7 @@ async function askOpenRouter(prompt, started) {
   }
 
   const model =
+    modelOverride ||
     process.env.NERO_OPENROUTER_MODEL ||
     'nvidia/nemotron-3-ultra-550b-a55b:free';
 
@@ -3685,7 +3948,11 @@ async function askOpenRouter(prompt, started) {
   return reply;
 }
 
-async function askNvidiaNim(prompt, started) {
+async function askNvidiaNim(
+  prompt,
+  started,
+  modelOverride = null
+) {
   const apiKey =
     process.env.NVIDIA_NIM_API_KEY ||
     process.env.NVIDIA_API_KEY ||
@@ -3698,6 +3965,7 @@ async function askNvidiaNim(prompt, started) {
   }
 
   const model =
+    modelOverride ||
     process.env.NVIDIA_NIM_MODEL ||
     'nvidia/nemotron-3-super-120b-a12b';
 
@@ -3771,12 +4039,18 @@ async function askNvidiaNim(prompt, started) {
   return reply;
 }
 
-async function askMistral(prompt, started = Date.now()) {
+async function askMistral(
+  prompt,
+  started = Date.now(),
+  modelOverride = null
+) {
   const apiKey = process.env.MISTRAL_API_KEY;
   const baseUrl =
     process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1';
   const model =
-    process.env.MISTRAL_MODEL || 'mistral-small-latest';
+    modelOverride ||
+    process.env.MISTRAL_MODEL ||
+    'mistral-small-latest';
 
   if (!apiKey) {
     throw new Error('MISTRAL_API_KEY is missing');
@@ -3840,10 +4114,15 @@ async function askMistral(prompt, started = Date.now()) {
   return reply;
 }
 
-async function askCloudflare(prompt, started = Date.now()) {
+async function askCloudflare(
+  prompt,
+  started = Date.now(),
+  modelOverride = null
+) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   const model =
+    modelOverride ||
     process.env.CLOUDFLARE_MODEL ||
     '@cf/zai-org/glm-4.7-flash';
 
@@ -3915,77 +4194,355 @@ async function askCloudflare(prompt, started = Date.now()) {
   return reply;
 }
 
-async function askGemini(sock, jid, sender, text) {
-  const started = Date.now();
+async function askGeminiDirect(
+  prompt,
+  model,
+  started
+) {
+  const response =
+    await gemini.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        temperature: 0.7,
+        maxOutputTokens: 256
+      }
+    });
 
-  const prompt = await buildPrompt(
-    jid,
-    sender,
-    text,
-    await neroGetGroupRoster(sock, jid)
+  const reply =
+    response?.text?.trim();
+
+  if (!reply) {
+    throw new Error(
+      'Gemini returned no text.'
+    );
+  }
+
+  console.log(
+    '[GEMINI DIRECT] ' +
+    model +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
   );
 
-  const models = [MODEL, FALLBACK_MODEL];
-  let lastError = null;
+  return reply;
+}
 
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
+async function askNeroSelectedModel(
+  key,
+  prompt,
+  started
+) {
+  const selected =
+    getNeroModelInfo(key);
 
-    try {
-      const response =
-        await gemini.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            temperature: 0.7,
-            maxOutputTokens: 256
-          }
-        });
-
-      const reply =
-        response?.text?.trim();
-
-      if (!reply) {
-        throw new Error(
-          'Gemini returned no text.'
-        );
-      }
-
-      console.log(
-        '[GEMINI] ' +
-        model +
-        ' — ' +
-        (Date.now() - started) +
-        ' ms'
+  switch (key) {
+    case 'gemini_primary':
+    case 'gemini_fallback':
+      return await askGeminiDirect(
+        prompt,
+        selected.model,
+        started
       );
 
-      return reply;
+    case 'groq_qwen':
+      return await askGroq(
+        prompt,
+        started,
+        selected.model
+      );
 
+    case 'openrouter_nemotron':
+      return await askOpenRouter(
+        prompt,
+        started,
+        selected.model
+      );
+
+    case 'nvidia_nemotron':
+      return await askNvidiaNim(
+        prompt,
+        started,
+        selected.model
+      );
+
+    case 'cloudflare_glm':
+      return await askCloudflare(
+        prompt,
+        started,
+        selected.model
+      );
+
+    case 'mistral_small':
+      return await askMistral(
+        prompt,
+        started,
+        selected.model
+      );
+
+    default:
+      throw new Error(
+        'Unknown selected model: ' + key
+      );
+  }
+}
+
+async function sendNeroModelMenu(
+  sock,
+  jid
+) {
+  const selectedKey =
+    getNeroSelectedModel(jid);
+
+  const selected =
+    getNeroModelInfo(
+      selectedKey
+    );
+
+  const rows =
+    NERO_MODEL_CATALOG
+      .filter(
+        model =>
+          model.key !== 'auto'
+      )
+      .map(model => ({
+        title:
+          (model.key === selectedKey
+            ? '✓ '
+            : '') +
+          model.label,
+
+        description:
+          model.provider +
+          ' • ' +
+          neroQuotaText(
+            model.key
+          ),
+
+        id:
+          'nero:model:' +
+          model.key
+      }));
+
+  rows.unshift({
+    title:
+      selectedKey === 'auto'
+        ? '✓ Automatic fallback'
+        : 'Automatic fallback',
+
+    description:
+      'Use the normal provider chain',
+
+    id: 'nero:model:auto'
+  });
+
+  const nativeButton = {
+    name: 'single_select',
+
+    buttonParamsJson:
+      JSON.stringify({
+        title: 'Choose model',
+        sections: [
+          {
+            title:
+              'Nero models',
+            highlight_label:
+              'Current: ' +
+              selected.label,
+            rows
+          }
+        ]
+      })
+  };
+
+  const interactiveMessage =
+    proto.Message.InteractiveMessage.create({
+      body:
+        proto.Message.InteractiveMessage.Body.create({
+          text:
+            '🤖 NERO MODEL\n\n' +
+            'Current: ' +
+            selected.label +
+            '\n\n' +
+            'Tap below to choose the model Nero should prefer in this chat.'
+        }),
+
+      footer:
+        proto.Message.InteractiveMessage.Footer.create({
+          text:
+            'Automatic fallback stays active if the selected model fails.'
+        }),
+
+      nativeFlowMessage:
+        proto.Message.InteractiveMessage.NativeFlowMessage.create({
+          buttons: [
+            proto.Message.InteractiveMessage.NativeFlowMessage.NativeFlowButton.create(
+              nativeButton
+            )
+          ],
+          messageParamsJson: '{}',
+          messageVersion: 1
+        })
+    });
+
+  const waMessage =
+    generateWAMessageFromContent(
+      jid,
+      {
+        interactiveMessage
+      },
+      {
+        userJid:
+          sock.user?.id
+      }
+    );
+
+  const bizNode =
+    neroImposterBizNode();
+
+  const additionalNodes =
+    jid.endsWith('@g.us')
+      ? [bizNode]
+      : [
+          {
+            tag: 'bot',
+            attrs: {
+              biz_bot: '1'
+            }
+          },
+          bizNode
+        ];
+
+  await sock.relayMessage(
+    jid,
+    waMessage.message,
+    {
+      messageId:
+        waMessage.key.id,
+      additionalNodes
+    }
+  );
+
+  if (
+    waMessage?.key?.id
+  ) {
+    botSentMessageIds.add(
+      waMessage.key.id
+    );
+
+    setTimeout(() => {
+      botSentMessageIds.delete(
+        waMessage.key.id
+      );
+    }, 5 * 60 * 1000);
+  }
+
+  console.log(
+    '[MODEL MENU] Sent to',
+    jid
+  );
+}
+
+async function askGemini(
+  sock,
+  jid,
+  sender,
+  text
+) {
+  const started = Date.now();
+
+  const prompt =
+    await buildPrompt(
+      jid,
+      sender,
+      text,
+      await neroGetGroupRoster(
+        sock,
+        jid
+      )
+    );
+
+  const selectedKey =
+    getNeroSelectedModel(jid);
+
+  if (
+    selectedKey &&
+    selectedKey !== 'auto'
+  ) {
+    try {
+      console.log(
+        '[NERO MODEL] Preferred:',
+        getNeroModelInfo(
+          selectedKey
+        ).label
+      );
+
+      return await askNeroSelectedModel(
+        selectedKey,
+        prompt,
+        started
+      );
     } catch (error) {
-      lastError = error;
+      console.error(
+        '[NERO MODEL] Preferred model failed:',
+        error?.message || error
+      );
 
+      console.log(
+        '[NERO MODEL] Returning to automatic fallback chain.'
+      );
+    }
+  }
+
+  const models = [
+    MODEL,
+    FALLBACK_MODEL
+  ];
+
+  for (
+    let i = 0;
+    i < models.length;
+    i++
+  ) {
+    const model =
+      models[i];
+
+    try {
+      return await askGeminiDirect(
+        prompt,
+        model,
+        started
+      );
+    } catch (error) {
       console.error(
         '[GEMINI] ' +
         model +
         ' failed: ' +
-        String(error?.message || error)
+        String(
+          error?.message ||
+          error
+        )
       );
 
       if (
-        !isNeroProviderFallbackError(error)
+        !isNeroProviderFallbackError(
+          error
+        )
       ) {
         throw error;
       }
 
-      if (i < models.length - 1) {
+      if (
+        i <
+        models.length - 1
+      ) {
         console.log(
           '[GEMINI] Switching from ' +
           model +
           ' to ' +
           models[i + 1]
         );
-
-        continue;
       }
     }
   }
@@ -4002,13 +4559,21 @@ async function askGemini(sock, jid, sender, text) {
   } catch (error) {
     console.error(
       '[GROQ] Failed: ' +
-      String(error?.message || error)
+      String(
+        error?.message ||
+        error
+      )
     );
 
     if (
-      !isNeroProviderFallbackError(error) &&
+      !isNeroProviderFallbackError(
+        error
+      ) &&
       !/GROQ_API_KEY is missing/i.test(
-        String(error?.message || error)
+        String(
+          error?.message ||
+          error
+        )
       )
     ) {
       throw error;
@@ -4027,13 +4592,21 @@ async function askGemini(sock, jid, sender, text) {
   } catch (error) {
     console.error(
       '[OPENROUTER] Failed: ' +
-      String(error?.message || error)
+      String(
+        error?.message ||
+        error
+      )
     );
 
     if (
-      !isNeroProviderFallbackError(error) &&
+      !isNeroProviderFallbackError(
+        error
+      ) &&
       !/OPENROUTER_API_KEY is missing/i.test(
-        String(error?.message || error)
+        String(
+          error?.message ||
+          error
+        )
       )
     ) {
       throw error;
@@ -4052,7 +4625,10 @@ async function askGemini(sock, jid, sender, text) {
   } catch (error) {
     console.error(
       '[NVIDIA NIM] Failed: ' +
-      String(error?.message || error)
+      String(
+        error?.message ||
+        error
+      )
     );
   }
 
@@ -4068,7 +4644,10 @@ async function askGemini(sock, jid, sender, text) {
   } catch (error) {
     console.error(
       '[CLOUDFLARE] Failed: ' +
-      String(error?.message || error)
+      String(
+        error?.message ||
+        error
+      )
     );
   }
 
@@ -4325,6 +4904,116 @@ async function startNero() {
     }
 
     const neroCommand = (text || '').trim().toLowerCase();
+
+    /* NERO MODEL SELECTOR */
+
+    if (
+      message.key?.fromMe &&
+      /^nero:model:/.test(
+        text || ''
+      )
+    ) {
+      const selectedKey =
+        String(text)
+          .slice(
+            'nero:model:'.length
+          )
+          .trim();
+
+      if (
+        selectedKey !== 'auto' &&
+        !NERO_MODEL_CATALOG.some(
+          model =>
+            model.key === selectedKey
+        )
+      ) {
+        await sendNeroControlMessage(
+          sock,
+          jid,
+          'That model is not available.'
+        );
+
+        continue;
+      }
+
+      setNeroSelectedModel(
+        jid,
+        selectedKey
+      );
+
+      const selected =
+        getNeroModelInfo(
+          selectedKey
+        );
+
+      await sendNeroControlMessage(
+        sock,
+        jid,
+        '✅ MODEL SWITCHED\\n\\n' +
+        'Preferred: ' +
+        selected.label +
+        '\\n' +
+        'Provider: ' +
+        selected.provider +
+        '\\n' +
+        'Quota: ' +
+        neroQuotaText(
+          selected.key
+        ) +
+        '\\n\\n' +
+        'Automatic fallback remains active.'
+      );
+
+      console.log(
+        '[NERO MODEL] ' +
+        jid +
+        ' → ' +
+        selected.label
+      );
+
+      continue;
+    }
+
+    if (
+      message.key?.fromMe &&
+      (
+        neroCommand === '!nero model' ||
+        neroCommand === '!nero models' ||
+        neroCommand === '!model'
+      )
+    ) {
+      await sendNeroModelMenu(
+        sock,
+        jid
+      );
+
+      continue;
+    }
+
+    if (
+      message.key?.fromMe &&
+      (
+        neroCommand ===
+          '!nero model auto' ||
+        neroCommand ===
+          '!nero model default'
+      )
+    ) {
+      setNeroSelectedModel(
+        jid,
+        'auto'
+      );
+
+      await sendNeroControlMessage(
+        sock,
+        jid,
+        '✅ AUTOMATIC MODEL SELECTION RESTORED\\n\\n' +
+        'Nero will use the normal provider fallback chain.'
+      );
+
+      continue;
+    }
+
 
         // Only messages sent from Master account can control Nero.
         if (message.key?.fromMe) {
