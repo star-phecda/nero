@@ -4724,7 +4724,11 @@ async function startNero() {
       console.log('\n================================');
       console.log(`      ${BOT_NAME} IS ONLINE`);
       console.log('================================');
-      console.log(`Model: ${MODEL}`);
+      const defaultModelInfo = getNeroModelInfo('auto');
+      console.log('Model: Per-chat model selector');
+      console.log(
+        `Default: ${defaultModelInfo.label} (Gemini primary → fallback providers)`
+      );
       console.log(
         `Group replies: ${
           RESPOND_TO_ALL_GROUP_MESSAGES ? 'every message' : 'tagged/replied-to by Master, or "Nero" is said'
@@ -4907,8 +4911,18 @@ async function startNero() {
 
     /* NERO MODEL SELECTOR */
 
+    const isMasterModelSelection =
+      message.key?.fromMe === true ||
+      myIds.includes(
+        normalizeJid(
+          message.key?.participant ||
+          message.key?.participantPn ||
+          ''
+        )
+      );
+
     if (
-      message.key?.fromMe &&
+      isMasterModelSelection &&
       /^nero:model:/.test(
         text || ''
       )
@@ -4975,7 +4989,7 @@ async function startNero() {
     }
 
     if (
-      message.key?.fromMe &&
+      isMasterModelSelection &&
       (
         neroCommand === '!nero model' ||
         neroCommand === '!nero models' ||
@@ -4991,7 +5005,7 @@ async function startNero() {
     }
 
     if (
-      message.key?.fromMe &&
+      isMasterModelSelection &&
       (
         neroCommand ===
           '!nero model auto' ||
