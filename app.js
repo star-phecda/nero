@@ -208,6 +208,13 @@ const NERO_MODEL_CATALOG = [
     media: '🖼️ images • 🏷️ stickers'
   },
   {
+    key: 'fhrouter_grok',
+    provider: 'FHRouter',
+    label: 'Grok 4.6',
+    model: process.env.FHROUTER_MODEL || 'grok-4.6',
+    media: '📝 text only'
+  },
+  {
     key: 'openrouter_nemotron',
     provider: 'OpenRouter',
     label: 'Nemotron 3 Ultra 550B',
@@ -599,6 +606,10 @@ function neroModelSupportsMedia(key, kind) {
 }
 
 function neroQuotaText(key) {
+  if (key === 'fhrouter_grok') {
+    return 'FHRouter • quota controlled by FHRouter';
+  }
+
   if (key === 'groq_qwen') {
     const quota =
       neroQuotaState.groq;
@@ -1289,6 +1300,10 @@ async function askNeroFamilyFeudLLM(prompt, started, jid) {
     {
       name: 'Groq',
       run: () => askGroq(prompt, started)
+    },
+    {
+      name: 'FHRouter Grok 4.6',
+      run: () => askFHRouter(prompt, started)
     },
     {
       name: 'OpenRouter',
@@ -4528,6 +4543,98 @@ async function askGroq(
   return reply;
 }
 
+async function askFHRouter(
+  prompt,
+  started = Date.now(),
+  modelOverride = null
+) {
+  const apiKey = process.env.FHROUTER_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      'FHROUTER_API_KEY is missing. FHRouter is unavailable.'
+    );
+  }
+
+  const model =
+    modelOverride ||
+    process.env.FHROUTER_MODEL ||
+    'grok-4.6';
+
+  const baseUrl =
+    process.env.FHROUTER_BASE_URL ||
+    'https://fhrouter.com/v1';
+
+  const response = await fetch(
+    baseUrl.replace(/\/$/, '') + '/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: Number(
+          process.env.FHROUTER_MAX_TOKENS || 768
+        ),
+        stream: false
+      })
+    }
+  );
+
+  const raw = await response.text();
+
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    data = {};
+  }
+
+  if (!response.ok) {
+    const details =
+      data?.error?.message ||
+      data?.message ||
+      raw ||
+      '';
+
+    const error = new Error(
+      'FHRouter request failed (' +
+      response.status +
+      ')' +
+      (details ? ': ' + details : '.')
+    );
+
+    error.status = response.status;
+    throw error;
+  }
+
+  const reply =
+    data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error('FHRouter returned no text.');
+  }
+
+  console.log(
+    '[FHROUTER] ' +
+    model +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
 async function askOpenRouter(
   prompt,
   started,
@@ -5233,6 +5340,19 @@ async function askNeroSelectedModel(
     case 'groq_qwen':
       return await askGroq(prompt, started, selected.model, media);
 
+    case 'fhrouter_grok':
+      if (media) {
+        throw new Error(
+          'FHRouter Grok 4.6 is configured as text-only in Nero.'
+        );
+      }
+
+      return await askFHRouter(
+        prompt,
+        started,
+        selected.model
+      );
+
     case 'openrouter_nemotron':
       return await askOpenRouter(prompt, started, selected.model);
 
@@ -5535,6 +5655,29 @@ async function askGemini(
       !/does not support video/i.test(String(error?.message || error))
     ) {
       throw error;
+    }
+  }
+
+  if (!media) {
+    try {
+      return await askFHRouter(
+        prompt,
+        started
+      );
+    } catch (error) {
+      console.error(
+        '[FHROUTER] Failed: ' +
+        String(error?.message || error)
+      );
+
+      if (
+        !isNeroProviderFallbackError(error) &&
+        !/FHROUTER_API_KEY is missing/i.test(
+          String(error?.message || error)
+        )
+      ) {
+        throw error;
+      }
     }
   }
 
