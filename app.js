@@ -286,7 +286,8 @@ function resolveNeroCatalogModelKey(modelId) {
   const byModel = NERO_MODEL_CATALOG.find(
     model => (
       model.model &&
-      String(model.model).trim() === normalized
+      String(model.model).trim().toLowerCase() ===
+        normalized.toLowerCase()
     )
   );
 
@@ -297,6 +298,169 @@ function getConfiguredNvidiaModelKey() {
   return resolveNeroCatalogModelKey(
     process.env.NVIDIA_NIM_MODEL
   );
+}
+
+function getNvidiaModelProfile(model) {
+  const key =
+    resolveNeroCatalogModelKey(model) ||
+    'nvidia_nemotron';
+
+  const numberEnv = (name, fallback) => {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value > 0
+      ? value
+      : fallback;
+  };
+
+  const envOr = (name, fallback) => {
+    const value = String(process.env[name] || '').trim();
+    return value || fallback;
+  };
+
+  const fastReasoning =
+    /^(none|off|false|0|no)$/i.test(
+      String(
+        process.env.NVIDIA_NIM_ENABLE_THINKING || ''
+      )
+    )
+      ? 'none'
+      : null;
+
+  switch (key) {
+    case 'nvidia_deepseek':
+      return {
+        key,
+        temperature: 1.0,
+        top_p: 0.95,
+        max_tokens: numberEnv(
+          'NVIDIA_DEEPSEEK_MAX_TOKENS',
+          4096
+        ),
+        reasoning_effort: envOr(
+          'NVIDIA_DEEPSEEK_REASONING_EFFORT',
+          'none'
+        )
+      };
+
+    case 'nvidia_lightning':
+      return {
+        key,
+        temperature: 1.0,
+        top_p: 0.95,
+        max_tokens: numberEnv(
+          'NVIDIA_LIGHTNING_MAX_TOKENS',
+          4096
+        ),
+        reasoning_effort: envOr(
+          'NVIDIA_LIGHTNING_REASONING_EFFORT',
+          'none'
+        )
+      };
+
+    case 'nvidia_glm':
+      return {
+        key,
+        temperature: 0.5,
+        max_tokens: numberEnv(
+          'NVIDIA_GLM_MAX_TOKENS',
+          2048
+        ),
+        reasoning_effort: envOr(
+          'NVIDIA_GLM_REASONING_EFFORT',
+          'low'
+        ),
+        chat_template_kwargs: {
+          clear_thinking: true
+        }
+      };
+
+    case 'nvidia_muse':
+      return {
+        key,
+        temperature: 0.95,
+        top_p: 1.0,
+        max_tokens: numberEnv(
+          'NVIDIA_MUSE_MAX_TOKENS',
+          4096
+        ),
+        reasoning_effort: envOr(
+          'NVIDIA_MUSE_REASONING_EFFORT',
+          'low'
+        )
+      };
+
+    case 'nvidia_kimi':
+      return {
+        key,
+        temperature: 1.0,
+        max_tokens: numberEnv(
+          'NVIDIA_KIMI_MAX_TOKENS',
+          4096
+        ),
+        reasoning_effort: envOr(
+          'NVIDIA_KIMI_REASONING_EFFORT',
+          'low'
+        )
+      };
+
+    case 'nvidia_nemotron':
+    default: {
+      const thinkingEnabled =
+        !/^(false|0|no)$/i.test(
+          String(
+            process.env.NVIDIA_NIM_ENABLE_THINKING ||
+            'false'
+          )
+        );
+
+      return {
+        key,
+        temperature: 1.0,
+        top_p: 0.95,
+        max_tokens: numberEnv(
+          'NVIDIA_NIM_MAX_TOKENS',
+          4096
+        ),
+        reasoning_effort:
+          fastReasoning ||
+          (
+            thinkingEnabled
+              ? envOr(
+                  'NVIDIA_NEMOTRON_REASONING_EFFORT',
+                  'low'
+                )
+              : 'none'
+          )
+      };
+    }
+  }
+}
+
+function extractNvidiaReply(message) {
+  const content = message?.content;
+
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === 'string') {
+          return part;
+        }
+
+        if (typeof part?.text === 'string') {
+          return part.text;
+        }
+
+        return '';
+      })
+      .join('')
+      .trim();
+  }
+
+  return '';
 }
 
 function loadNeroModelSettings() {
@@ -359,9 +523,10 @@ function getNeroSelectedModel(jid) {
     getConfiguredNvidiaModelKey();
 
   if (
-    saved === 'nvidia_nemotron' &&
+    saved &&
+    saved.startsWith('nvidia_') &&
     configuredNvidiaKey &&
-    configuredNvidiaKey !== 'nvidia_nemotron'
+    saved === 'nvidia_nemotron'
   ) {
     return configuredNvidiaKey;
   }
@@ -4443,16 +4608,18 @@ async function askNvidiaNim(
     process.env.NVIDIA_NIM_MODEL ||
     'nvidia/nemotron-3-super-120b-a12b';
 
+  const modelKey =
+    resolveNeroCatalogModelKey(model) ||
+    'nvidia_nemotron';
+
+  const profile =
+    getNvidiaModelProfile(model);
+
   if (media && media.kind === 'video') {
     throw new Error(
       'Selected NVIDIA NIM model does not support video input.'
     );
   }
-
-  const modelKey =
-    NERO_MODEL_CATALOG.find(
-      item => item.model === model
-    )?.key || '';
 
   if (
     media &&
@@ -4478,7 +4645,9 @@ async function askNvidiaNim(
           type: 'text',
           text:
             media.kind === 'sticker'
-              ? prompt + '\n[Visual input is a WhatsApp sticker. Inspect the sticker itself.]'
+              ? prompt +
+                '
+[Visual input is a WhatsApp sticker. Inspect the sticker itself.]'
               : prompt
         },
         {
@@ -4494,6 +4663,33 @@ async function askNvidiaNim(
       ]
     : prompt;
 
+  const body = {
+    model,
+    messages: [
+      {
+        role: 'user',
+        content
+      }
+    ],
+    stream: false,
+    temperature: profile.temperature,
+    max_tokens: profile.max_tokens
+  };
+
+  if (profile.top_p != null) {
+    body.top_p = profile.top_p;
+  }
+
+  if (profile.reasoning_effort) {
+    body.reasoning_effort =
+      profile.reasoning_effort;
+  }
+
+  if (profile.chat_template_kwargs) {
+    body.chat_template_kwargs =
+      profile.chat_template_kwargs;
+  }
+
   const response = await fetch(
     baseUrl + '/chat/completions',
     {
@@ -4502,45 +4698,7 @@ async function askNvidiaNim(
         'Authorization': 'Bearer ' + apiKey,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'user',
-            content
-          }
-        ],
-        temperature:
-          /nemotron-3-super-120b-a12b/i.test(model)
-            ? 1.0
-            : 0.7,
-        top_p:
-          /nemotron-3-super-120b-a12b/i.test(model)
-            ? 0.95
-            : undefined,
-        max_tokens:
-          Number(
-            process.env.NVIDIA_NIM_MAX_TOKENS ||
-            (
-              /nemotron-3-super-120b-a12b/i.test(model)
-                ? 1024
-                : 256
-            )
-          ),
-        ...( /nemotron-3-super-120b-a12b/i.test(model)
-          ? {
-              chat_template_kwargs: {
-                enable_thinking:
-                  !/^(false|0|no)$/i.test(
-                    String(
-                      process.env.NVIDIA_NIM_ENABLE_THINKING ||
-                      'false'
-                    )
-                  )
-              }
-            }
-          : {})
-      })
+      body: JSON.stringify(body)
     }
   );
 
@@ -4563,34 +4721,55 @@ async function askNvidiaNim(
     );
 
     error.status = response.status;
+    error.nvidiaModel = model;
+    error.nvidiaModelKey = modelKey;
     throw error;
   }
 
   const data = await response.json();
-
   const choice = data?.choices?.[0];
+  const message = choice?.message || {};
   const reply =
-    choice?.message?.content?.trim();
+    extractNvidiaReply(message);
 
   if (!reply) {
     const finishReason =
       choice?.finish_reason ||
-      data?.choices?.[0]?.finish_reason ||
       '';
 
-    throw new Error(
+    const reasoningPresent = Boolean(
+      typeof message?.reasoning_content === 'string'
+        ? message.reasoning_content.trim()
+        : Array.isArray(message?.reasoning_content) &&
+          message.reasoning_content.length
+    );
+
+    const error = new Error(
       'NVIDIA NIM returned no final text.' +
       (
         finishReason
-          ? ' finish_reason=' + finishReason
+          ? ' finish_reason=' + finishReason + '.'
+          : ''
+      ) +
+      (
+        reasoningPresent
+          ? ' reasoning_content was present; lower reasoning or raise max_tokens.'
           : ''
       )
     );
+
+    error.nvidiaModel = model;
+    error.nvidiaModelKey = modelKey;
+    error.finishReason = finishReason;
+    throw error;
   }
 
   console.log(
     '[NVIDIA NIM] ' +
     model +
+    ' [' +
+    modelKey +
+    ']' +
     (media ? ' [' + media.kind + ']' : '') +
     ' — ' +
     (Date.now() - started) +
