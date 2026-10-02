@@ -12,7 +12,9 @@ function normalizeNumber(value) {
 
 function getSender(message) {
   return (
+    message?.key?.participantPn ||
     message?.key?.participant ||
+    message?.key?.participantAlt ||
     message?.participant ||
     message?.key?.remoteJid ||
     ''
