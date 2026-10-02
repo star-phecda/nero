@@ -5825,12 +5825,16 @@ async function startNero() {
         const isGroup = jid.endsWith('@g.us');
         const isMasterMessage = message.key?.fromMe === true;
         const senderId =
-          message.key?.participantPn ||
-          message.key?.participant ||
-          message.participant ||
-          (isMasterMessage
-            ? sock.user?.id
-            : '');
+          isMasterMessage
+            ? (sock.user?.id || '')
+            : (
+                message.key?.participantPn ||
+                message.key?.participant ||
+                message.key?.participantAlt ||
+                message.participant ||
+                message.key?.remoteJid ||
+                ''
+              );
 
         const sender =
           isMasterMessage
