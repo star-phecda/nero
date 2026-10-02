@@ -1,0 +1,11 @@
+node_modules
+.env
+auth_info_baileys
+auth_info_baileys.backup-*
+*.log
+nero-log.txt
+nero_group_history.json
+nero_memory.json
+nero_model_settings.json
+.git
+.github

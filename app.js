@@ -1,6 +1,7 @@
 import { handleNeroTriviaMessage } from './neroTrivia.js';
 import { handleNeroTagAllMessage } from './neroTagAll.js';
 import fs from 'node:fs';
+import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
 import 'dotenv/config';
 import makeWASocket, {
@@ -27,6 +28,53 @@ const RESPOND_TO_ALL_GROUP_MESSAGES =
   process.env.RESPOND_TO_ALL_GROUP_MESSAGES === 'true';
 const CONTEXT_MESSAGES = Number(process.env.CONTEXT_MESSAGES || 3);
 const COOLDOWN_MS = Number(process.env.COOLDOWN_MS || 1800);
+
+const NERO_AUTH_DIR =
+  process.env.NERO_AUTH_DIR || './auth_info_baileys';
+
+const NERO_SYNC_FULL_HISTORY =
+  process.env.NERO_SYNC_FULL_HISTORY !== 'false';
+
+const NERO_HTTP_PORT = Number(
+  process.env.PORT || 0
+);
+
+if (NERO_HTTP_PORT > 0) {
+  const healthServer = createServer(
+    (request, response) => {
+      if (request.url === '/healthz') {
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(
+          JSON.stringify({
+            ok: true,
+            service: 'nero',
+            time: new Date().toISOString(),
+          })
+        );
+        return;
+      }
+
+      response.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+      });
+      response.end('Nero is alive.');
+    }
+  );
+
+  healthServer.listen(
+    NERO_HTTP_PORT,
+    '0.0.0.0',
+    () => {
+      console.log(
+        '[NERO HTTP] Health server listening on port ' +
+          NERO_HTTP_PORT
+      );
+    }
+  );
+}
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -5508,7 +5556,7 @@ loadNeroGroupHistory();
 async function startNero() {
   neroConnectionStartTime = Math.floor(Date.now() / 1000);
   const { state, saveCreds } =
-    await useMultiFileAuthState('./auth_info_baileys');
+    await useMultiFileAuthState(NERO_AUTH_DIR);
 
   let pairingRequested = false;
 
@@ -5520,13 +5568,13 @@ async function startNero() {
     // Recaps require actual WhatsApp history,
     // not just messages received while Nero is running.
     browser: Browsers.macOS('Chrome'),
-    syncFullHistory: true,
+    syncFullHistory: NERO_SYNC_FULL_HISTORY,
 
     // Explicitly accept all WhatsApp history-sync types.
     // Baileys 7.x has had cases where history sync reports
     // completion but drops the actual history events unless
     // this hook allows them.
-    shouldSyncHistoryMessage: () => true,
+    shouldSyncHistoryMessage: () => NERO_SYNC_FULL_HISTORY,
   });
 
   sock.ev.on('messages.upsert', ({ messages, type }) => {
