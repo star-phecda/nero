@@ -4386,8 +4386,7 @@ async function askGroq(
           text:
             media.kind === 'sticker'
               ? prompt +
-                '
-[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
+                '\n[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
               : prompt
         },
         {
@@ -4696,8 +4695,7 @@ async function askNvidiaNim(
           text:
             media.kind === 'sticker'
               ? prompt +
-                '
-[Visual input is a WhatsApp sticker. Inspect the sticker itself.]'
+                '\n[Visual input is a WhatsApp sticker. Inspect the sticker itself.]'
               : prompt
         },
         {
@@ -4860,8 +4858,7 @@ async function askMistral(
           text:
             media.kind === 'sticker'
               ? prompt +
-                '
-[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
+                '\n[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
               : prompt
         },
         {
@@ -5089,8 +5086,7 @@ async function askGeminiDirect(
               text:
                 media.kind === 'sticker'
                   ? prompt +
-                    '
-[Visual input is a WhatsApp sticker. Inspect the actual sticker image and react to what is visually shown.]'
+                    '\n[Visual input is a WhatsApp sticker. Inspect the actual sticker image and react to what is visually shown.]'
                   : prompt
             },
             {
