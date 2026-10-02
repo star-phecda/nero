@@ -4301,16 +4301,39 @@ async function askOpenRouter(
   return reply;
 }
 
+function getNvidiaApiKey() {
+  const candidates = [
+    process.env.NVIDIA_NIM_API_KEY,
+    process.env.NVIDIA_API_KEY,
+    process.env.NIM_API_KEY
+  ];
+
+  for (const value of candidates) {
+    if (value == null) continue;
+
+    const normalized = String(value).trim().toLowerCase();
+
+    if (
+      !normalized ||
+      normalized === 'undefined' ||
+      normalized === 'null'
+    ) {
+      continue;
+    }
+
+    return String(value).trim();
+  }
+
+  return null;
+}
+
 async function askNvidiaVision(
   imageBuffer,
   mimeType,
   prompt,
   started = Date.now()
 ) {
-  const apiKey =
-    process.env.NVIDIA_NIM_API_KEY ||
-    process.env.NVIDIA_API_KEY ||
-    process.env.NIM_API_KEY;
+  const apiKey = getNvidiaApiKey();
 
   if (!apiKey) {
     throw new Error(
@@ -4408,10 +4431,7 @@ async function askNvidiaNim(
   started,
   modelOverride = null
 ) {
-  const apiKey =
-    process.env.NVIDIA_NIM_API_KEY ||
-    process.env.NVIDIA_API_KEY ||
-    process.env.NIM_API_KEY;
+  const apiKey = getNvidiaApiKey();
 
   if (!apiKey) {
     throw new Error(
