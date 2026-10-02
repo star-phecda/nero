@@ -6702,6 +6702,7 @@ const masterMentioned = mentionedJids.some(jid =>
           ? (
               isGroup
                 ? (
+                    isMasterMessage ||
                     RESPOND_TO_ALL_GROUP_MESSAGES ||
                     masterMentioned ||
                     repliedToMaster ||
