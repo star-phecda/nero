@@ -257,6 +257,15 @@ const NERO_MODEL_CATALOG = [
     media: '🖼️ images • 🏷️ stickers'
   },
   {
+    key: 'cloudflare_gemma',
+    provider: 'Cloudflare',
+    label: 'Gemma 4 26B A4B',
+    model:
+      process.env.CLOUDFLARE_GEMMA_MODEL ||
+      '@cf/google/gemma-4-26b-a4b-it',
+    media: '🖼️ images • 🏷️ stickers'
+  },
+  {
     key: 'cloudflare_glm',
     provider: 'Cloudflare',
     label: 'GLM-4.7-Flash',
@@ -619,7 +628,10 @@ function neroQuotaText(key) {
     return requests + ' • ' + tokens;
   }
 
-  if (key === 'cloudflare_glm') {
+  if (
+    key === 'cloudflare_gemma' ||
+    key === 'cloudflare_glm'
+  ) {
     return '10,000 Neurons/day allocation';
   }
 
@@ -4937,7 +4949,8 @@ async function askMistral(
 async function askCloudflare(
   prompt,
   started = Date.now(),
-  modelOverride = null
+  modelOverride = null,
+  media = null
 ) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
@@ -4959,6 +4972,35 @@ async function askCloudflare(
     accountId +
     '/ai/v1/chat/completions';
 
+  if (media && media.kind === 'video') {
+    throw new Error(
+      'Cloudflare Gemma does not support video input in Nero.'
+    );
+  }
+
+  const content = media
+    ? [
+        {
+          type: 'text',
+          text:
+            media.kind === 'sticker'
+              ? prompt +
+                '\n[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
+              : prompt
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url:
+              'data:' +
+              (media.mimeType || 'image/jpeg') +
+              ';base64,' +
+              Buffer.from(media.buffer).toString('base64')
+          }
+        }
+      ]
+    : prompt;
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -4970,20 +5012,20 @@ async function askCloudflare(
       messages: [
         {
           role: 'user',
-          content: prompt
+          content
         }
       ],
       temperature: 0.7,
 
-      // GLM-4.7-Flash is a reasoning model.
-      // Disable hidden thinking so Nero gets visible chat text
-      // instead of spending the whole completion budget reasoning.
+      // Keep Nero fast and conversational.
+      // Cloudflare's Gemma 4 examples explicitly support
+      // disabling its built-in thinking this way.
       reasoning_effort: null,
       chat_template_kwargs: {
         enable_thinking: false
       },
 
-      max_completion_tokens: 512
+      max_completion_tokens: 768
     })
   });
 
@@ -5207,8 +5249,14 @@ async function askNeroSelectedModel(
         media
       );
 
+    case 'cloudflare_gemma':
     case 'cloudflare_glm':
-      return await askCloudflare(prompt, started, selected.model);
+      return await askCloudflare(
+        prompt,
+        started,
+        selected.model,
+        media
+      );
 
     case 'mistral_small':
       return await askMistral(prompt, started, selected.model, media);
@@ -5549,11 +5597,34 @@ async function askGemini(
     }
   }
 
+  // Cloudflare Gemma 4 is the multimodal Cloudflare fallback.
+  // GLM-4.7-Flash remains the text-only Cloudflare fallback.
+  try {
+    return await askCloudflare(
+      prompt,
+      started,
+      getNeroModelInfo('cloudflare_gemma').model,
+      media
+    );
+  } catch (error) {
+    console.error(
+      '[CLOUDFLARE GEMMA] Failed: ' +
+      String(error?.message || error)
+    );
+  }
+
   if (!media) {
     try {
-      return await askCloudflare(prompt, started);
+      return await askCloudflare(
+        prompt,
+        started,
+        getNeroModelInfo('cloudflare_glm').model
+      );
     } catch (error) {
-      console.error('[CLOUDFLARE] Failed: ' + String(error?.message || error));
+      console.error(
+        '[CLOUDFLARE GLM] Failed: ' +
+        String(error?.message || error)
+      );
     }
 
     return await askMistral(prompt, started);
