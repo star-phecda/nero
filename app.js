@@ -5250,12 +5250,24 @@ async function askNeroSelectedModel(
       );
 
     case 'cloudflare_gemma':
-    case 'cloudflare_glm':
       return await askCloudflare(
         prompt,
         started,
         selected.model,
         media
+      );
+
+    case 'cloudflare_glm':
+      if (media) {
+        throw new Error(
+          'Cloudflare GLM-4.7-Flash does not support image or sticker input in Nero.'
+        );
+      }
+
+      return await askCloudflare(
+        prompt,
+        started,
+        selected.model
       );
 
     case 'mistral_small':
