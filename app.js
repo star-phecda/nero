@@ -24,10 +24,6 @@ const MODEL =
 const FALLBACK_MODEL =
   process.env.NERO_FALLBACK_MODEL || 'gemini-3.1-flash-lite';
 
-const NVIDIA_VISION_MODEL =
-  process.env.NVIDIA_NIM_VISION_MODEL ||
-  'meta/llama-3.2-11b-vision-instruct';
-
 const BOT_NAME = process.env.BOT_NAME || 'Nero';
 const RESPOND_TO_ALL_GROUP_MESSAGES =
   process.env.RESPOND_TO_ALL_GROUP_MESSAGES === 'true';
@@ -187,75 +183,92 @@ const NERO_MODEL_CATALOG = [
     key: 'auto',
     provider: 'Nero',
     label: 'Automatic fallback',
-    model: null
+    model: null,
+    media: '📝 text • 🖼️ images • 🎥 video • 🏷️ stickers'
   },
   {
     key: 'gemini_primary',
     provider: 'Google',
     label: 'Gemini primary',
-    model: MODEL
+    model: MODEL,
+    media: '🖼️ images • 🎥 video • 🏷️ stickers'
   },
   {
     key: 'gemini_fallback',
     provider: 'Google',
     label: 'Gemini fallback',
-    model: FALLBACK_MODEL
+    model: FALLBACK_MODEL,
+    media: '🖼️ images • 🎥 video • 🏷️ stickers'
   },
   {
     key: 'groq_qwen',
     provider: 'Groq',
     label: 'Qwen 3.8 27B',
-    model:
-      process.env.GROQ_MODEL ||
-      'qwen/qwen3.8-27b'
+    model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
+    media: '📝 text only'
   },
   {
     key: 'openrouter_nemotron',
     provider: 'OpenRouter',
     label: 'Nemotron 3 Ultra 550B',
-    model:
-      process.env.NERO_OPENROUTER_MODEL ||
-      'nvidia/nemotron-3-ultra-550b-a55b:free'
+    model: process.env.NERO_OPENROUTER_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b:free',
+    media: '📝 text only'
   },
   {
     key: 'nvidia_nemotron',
     provider: 'NVIDIA NIM',
     label: 'Nemotron 3 Super 120B',
-    model:
-      process.env.NVIDIA_NIM_MODEL ||
-      'nvidia/nemotron-3-super-120b-a12b'
+    model: process.env.NVIDIA_NIM_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
+    media: '📝 text only'
   },
   {
     key: 'nvidia_deepseek',
     provider: 'NVIDIA NIM',
     label: 'DeepSeek V4.1 Flash',
-    model:
-      process.env.NVIDIA_DEEPSEEK_MODEL ||
-      'deepseek-ai/deepseek-v4.1-flash'
+    model: process.env.NVIDIA_DEEPSEEK_MODEL || 'deepseek-ai/deepseek-v4.1-flash',
+    media: '🖼️ images • 🏷️ stickers'
   },
   {
     key: 'nvidia_lightning',
     provider: 'NVIDIA NIM',
     label: 'Nemotron 3.5 Lightning 30B A3B',
-    model:
-      process.env.NVIDIA_LIGHTNING_MODEL ||
-      'nvidia/nemotron-3.5-lightning-30b-a3b'
+    model: process.env.NVIDIA_LIGHTNING_MODEL || 'nvidia/nemotron-3.5-lightning-30b-a3b',
+    media: '📝 text only'
+  },
+  {
+    key: 'nvidia_glm',
+    provider: 'NVIDIA NIM',
+    label: 'GLM-5.3 Flash',
+    model: process.env.NVIDIA_GLM_MODEL || 'z-ai/glm-5-3-flash',
+    media: '🖼️ images • 🏷️ stickers'
+  },
+  {
+    key: 'nvidia_muse',
+    provider: 'NVIDIA NIM',
+    label: 'Muse Glimmer 30B',
+    model: process.env.NVIDIA_MUSE_MODEL || 'meta/muse-glimmer-30b',
+    media: '🖼️ images • 🏷️ stickers'
+  },
+  {
+    key: 'nvidia_kimi',
+    provider: 'NVIDIA NIM',
+    label: 'Kimi K3',
+    model: process.env.NVIDIA_KIMI_MODEL || 'moonshotai/kimi-k3',
+    media: '🖼️ images • 🏷️ stickers'
   },
   {
     key: 'cloudflare_glm',
     provider: 'Cloudflare',
     label: 'GLM-4.7-Flash',
-    model:
-      process.env.CLOUDFLARE_MODEL ||
-      '@cf/zai-org/glm-4.7-flash'
+    model: process.env.CLOUDFLARE_MODEL || '@cf/zai-org/glm-4.7-flash',
+    media: '📝 text only'
   },
   {
     key: 'mistral_small',
     provider: 'Mistral',
     label: 'Mistral Small 4',
-    model:
-      process.env.MISTRAL_MODEL ||
-      'mistral-small-latest'
+    model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
+    media: '📝 text only'
   }
 ];
 
@@ -340,6 +353,27 @@ function getNeroModelInfo(key) {
   );
 }
 
+function neroModelDescription(model) {
+  return (
+    model.provider +
+    ' • ' +
+    (model.media || '📝 text only') +
+    ' • ' +
+    neroQuotaText(model.key)
+  );
+}
+
+function neroModelSupportsMedia(key, kind) {
+  const model = getNeroModelInfo(key);
+  if (key === 'auto') return true;
+  if (key === 'gemini_primary' || key === 'gemini_fallback') return true;
+  return Boolean(
+    model.media &&
+    model.media.includes('🖼️') &&
+    kind !== 'video'
+  );
+}
+
 function neroQuotaText(key) {
   if (key === 'groq_qwen') {
     const quota =
@@ -388,7 +422,10 @@ function neroQuotaText(key) {
   if (
     key === 'nvidia_nemotron' ||
     key === 'nvidia_deepseek' ||
-    key === 'nvidia_lightning'
+    key === 'nvidia_lightning' ||
+    key === 'nvidia_glm' ||
+    key === 'nvidia_muse' ||
+    key === 'nvidia_kimi'
   ) {
     return 'Free prototyping • model/rate limited';
   }
@@ -3602,7 +3639,7 @@ function getText(message) {
   );
 }
 
-function getNeroVisionMedia(message) {
+function getNeroMedia(message) {
   const msg = message?.message;
   if (!msg) return null;
 
@@ -3613,6 +3650,16 @@ function getNeroVisionMedia(message) {
       downloadType: 'image',
       mimeType: msg.imageMessage.mimetype || 'image/jpeg',
       caption: msg.imageMessage.caption || ''
+    };
+  }
+
+  if (msg.videoMessage) {
+    return {
+      kind: 'video',
+      message: msg.videoMessage,
+      downloadType: 'video',
+      mimeType: msg.videoMessage.mimetype || 'video/mp4',
+      caption: msg.videoMessage.caption || ''
     };
   }
 
@@ -3629,7 +3676,7 @@ function getNeroVisionMedia(message) {
   return null;
 }
 
-async function downloadNeroVisionMedia(media) {
+async function downloadNeroMedia(media) {
   const stream = await downloadContentFromMessage(
     media.message,
     media.downloadType
@@ -4327,109 +4374,11 @@ function getNvidiaApiKey() {
   return null;
 }
 
-async function askNvidiaVision(
-  imageBuffer,
-  mimeType,
-  prompt,
-  started = Date.now()
-) {
-  const apiKey = getNvidiaApiKey();
-
-  if (!apiKey) {
-    throw new Error(
-      'NVIDIA_NIM_API_KEY is missing. NVIDIA vision is unavailable.'
-    );
-  }
-
-  const baseUrl =
-    process.env.NVIDIA_NIM_BASE_URL ||
-    'https://integrate.api.nvidia.com/v1';
-
-  const dataUri =
-    'data:' +
-    (mimeType || 'image/jpeg') +
-    ';base64,' +
-    Buffer.from(imageBuffer).toString('base64');
-
-  const response = await fetch(
-    baseUrl + '/chat/completions',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + apiKey,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        model: NVIDIA_VISION_MODEL,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: prompt
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: dataUri
-                }
-              }
-            ]
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 256
-      })
-    }
-  );
-
-  if (!response.ok) {
-    let details = '';
-
-    try {
-      const data = await response.json();
-      details =
-        data?.error?.message ||
-        data?.message ||
-        '';
-    } catch {}
-
-    const error = new Error(
-      'NVIDIA vision request failed (' +
-      response.status +
-      ')' +
-      (details ? ': ' + details : '.')
-    );
-
-    error.status = response.status;
-    throw error;
-  }
-
-  const data = await response.json();
-  const reply =
-    data?.choices?.[0]?.message?.content?.trim();
-
-  if (!reply) {
-    throw new Error('NVIDIA vision returned no text.');
-  }
-
-  console.log(
-    '[NVIDIA VISION] ' +
-    NVIDIA_VISION_MODEL +
-    ' — ' +
-    (Date.now() - started) +
-    ' ms'
-  );
-
-  return reply;
-}
-
 async function askNvidiaNim(
   prompt,
   started,
-  modelOverride = null
+  modelOverride = null,
+  media = null
 ) {
   const apiKey = getNvidiaApiKey();
 
@@ -4444,9 +4393,53 @@ async function askNvidiaNim(
     process.env.NVIDIA_NIM_MODEL ||
     'nvidia/nemotron-3-super-120b-a12b';
 
+  if (media && media.kind === 'video') {
+    throw new Error(
+      'Selected NVIDIA NIM model does not support video input.'
+    );
+  }
+
+  const modelKey =
+    NERO_MODEL_CATALOG.find(
+      item => item.model === model
+    )?.key || '';
+
+  if (
+    media &&
+    !neroModelSupportsMedia(
+      modelKey,
+      media.kind
+    )
+  ) {
+    throw new Error(
+      'Selected NVIDIA NIM model does not support ' +
+      media.kind +
+      ' input.'
+    );
+  }
+
   const baseUrl =
     process.env.NVIDIA_NIM_BASE_URL ||
     'https://integrate.api.nvidia.com/v1';
+
+  const content = media
+    ? [
+        {
+          type: 'text',
+          text: prompt
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url:
+              'data:' +
+              (media.mimeType || 'image/jpeg') +
+              ';base64,' +
+              Buffer.from(media.buffer).toString('base64')
+          }
+        }
+      ]
+    : prompt;
 
   const response = await fetch(
     baseUrl + '/chat/completions',
@@ -4461,7 +4454,7 @@ async function askNvidiaNim(
         messages: [
           {
             role: 'user',
-            content: prompt
+            content
           }
         ],
         temperature: 0.7,
@@ -4506,6 +4499,7 @@ async function askNvidiaNim(
   console.log(
     '[NVIDIA NIM] ' +
     model +
+    (media ? ' [' + media.kind + ']' : '') +
     ' — ' +
     (Date.now() - started) +
     ' ms'
@@ -4729,12 +4723,30 @@ async function askCloudflare(
 async function askGeminiDirect(
   prompt,
   model,
-  started
+  started,
+  media = null
 ) {
+  const contents = media
+    ? [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: media.mimeType || 'image/jpeg',
+                data: Buffer.from(media.buffer).toString('base64')
+              }
+            }
+          ]
+        }
+      ]
+    : prompt;
+
   const response =
     await gemini.models.generateContent({
       model,
-      contents: prompt,
+      contents,
       config: {
         temperature: 0.7,
         maxOutputTokens: 256
@@ -4764,10 +4776,25 @@ async function askGeminiDirect(
 async function askNeroSelectedModel(
   key,
   prompt,
-  started
+  started,
+  media = null
 ) {
-  const selected =
-    getNeroModelInfo(key);
+  const selected = getNeroModelInfo(key);
+
+  if (
+    media &&
+    !neroModelSupportsMedia(
+      key,
+      media.kind
+    )
+  ) {
+    throw new Error(
+      selected.label +
+      ' does not support ' +
+      media.kind +
+      ' input.'
+    );
+  }
 
   switch (key) {
     case 'gemini_primary':
@@ -4775,50 +4802,37 @@ async function askNeroSelectedModel(
       return await askGeminiDirect(
         prompt,
         selected.model,
-        started
+        started,
+        media
       );
 
     case 'groq_qwen':
-      return await askGroq(
-        prompt,
-        started,
-        selected.model
-      );
+      return await askGroq(prompt, started, selected.model);
 
     case 'openrouter_nemotron':
-      return await askOpenRouter(
-        prompt,
-        started,
-        selected.model
-      );
+      return await askOpenRouter(prompt, started, selected.model);
 
     case 'nvidia_nemotron':
     case 'nvidia_deepseek':
     case 'nvidia_lightning':
+    case 'nvidia_glm':
+    case 'nvidia_muse':
+    case 'nvidia_kimi':
       return await askNvidiaNim(
         prompt,
         started,
-        selected.model
+        selected.model,
+        media
       );
 
     case 'cloudflare_glm':
-      return await askCloudflare(
-        prompt,
-        started,
-        selected.model
-      );
+      return await askCloudflare(prompt, started, selected.model);
 
     case 'mistral_small':
-      return await askMistral(
-        prompt,
-        started,
-        selected.model
-      );
+      return await askMistral(prompt, started, selected.model);
 
     default:
-      throw new Error(
-        'Unknown selected model: ' + key
-      );
+      throw new Error('Unknown selected model: ' + key);
   }
 }
 
@@ -4848,10 +4862,8 @@ async function sendNeroModelMenu(
           model.label,
 
         description:
-          model.provider +
-          ' • ' +
-          neroQuotaText(
-            model.key
+          neroModelDescription(
+            model
           ),
 
         id:
@@ -4983,206 +4995,132 @@ async function askGemini(
   jid,
   sender,
   text,
-  senderId = ''
+  senderId = '',
+  media = null
 ) {
   const started = Date.now();
+
+  const promptText = [
+    text,
+    media
+      ? '[' + media.kind.charAt(0).toUpperCase() + media.kind.slice(1) + ' attached]'
+      : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const prompt =
     await buildPrompt(
       jid,
       sender,
-      text,
-      await neroGetGroupRoster(
-        sock,
-        jid
-      ),
+      promptText,
+      await neroGetGroupRoster(sock, jid),
       senderId
     );
 
-  const selectedKey =
-    getNeroSelectedModel(jid);
+  const selectedKey = getNeroSelectedModel(jid);
 
-  if (
-    selectedKey &&
-    selectedKey !== 'auto'
-  ) {
+  if (selectedKey && selectedKey !== 'auto') {
     try {
       console.log(
         '[NERO MODEL] Preferred:',
-        getNeroModelInfo(
-          selectedKey
-        ).label
+        getNeroModelInfo(selectedKey).label
       );
 
       return await askNeroSelectedModel(
         selectedKey,
         prompt,
-        started
+        started,
+        media
       );
     } catch (error) {
       console.error(
         '[NERO MODEL] Preferred model failed:',
         error?.message || error
       );
-
       console.log(
         '[NERO MODEL] Returning to automatic fallback chain.'
       );
     }
   }
 
-  const models = [
-    MODEL,
-    FALLBACK_MODEL
-  ];
+  const geminiModels = [MODEL, FALLBACK_MODEL];
 
-  for (
-    let i = 0;
-    i < models.length;
-    i++
-  ) {
-    const model =
-      models[i];
-
+  for (const model of geminiModels) {
     try {
       return await askGeminiDirect(
         prompt,
         model,
-        started
+        started,
+        media
       );
     } catch (error) {
       console.error(
-        '[GEMINI] ' +
-        model +
-        ' failed: ' +
-        String(
-          error?.message ||
-          error
-        )
+        '[GEMINI] ' + model + ' failed: ' +
+        String(error?.message || error)
       );
 
+      if (!isNeroProviderFallbackError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (!media) {
+    try {
+      return await askGroq(prompt, started);
+    } catch (error) {
+      console.error('[GROQ] Failed: ' + String(error?.message || error));
       if (
-        !isNeroProviderFallbackError(
-          error
-        )
+        !isNeroProviderFallbackError(error) &&
+        !/GROQ_API_KEY is missing/i.test(String(error?.message || error))
       ) {
         throw error;
       }
+    }
 
+    try {
+      return await askOpenRouter(prompt, started);
+    } catch (error) {
+      console.error('[OPENROUTER] Failed: ' + String(error?.message || error));
       if (
-        i <
-        models.length - 1
+        !isNeroProviderFallbackError(error) &&
+        !/OPENROUTER_API_KEY is missing/i.test(String(error?.message || error))
       ) {
-        console.log(
-          '[GEMINI] Switching from ' +
-          model +
-          ' to ' +
-          models[i + 1]
-        );
+        throw error;
       }
     }
   }
 
-  console.log(
-    '[NERO LLM] Both Gemini models are unavailable. Switching to Groq.'
-  );
+  const nvidiaKeys = media
+    ? ['nvidia_deepseek', 'nvidia_glm', 'nvidia_muse', 'nvidia_kimi']
+    : [
+        'nvidia_nemotron',
+        'nvidia_deepseek',
+        'nvidia_lightning',
+        'nvidia_glm',
+        'nvidia_muse',
+        'nvidia_kimi'
+      ];
 
-  try {
-    return await askGroq(
-      prompt,
-      started
-    );
-  } catch (error) {
-    console.error(
-      '[GROQ] Failed: ' +
-      String(
-        error?.message ||
-        error
-      )
-    );
+  for (const key of nvidiaKeys) {
+    const candidate = getNeroModelInfo(key);
 
-    if (
-      !isNeroProviderFallbackError(
-        error
-      ) &&
-      !/GROQ_API_KEY is missing/i.test(
-        String(
-          error?.message ||
-          error
-        )
-      )
-    ) {
-      throw error;
-    }
-  }
-
-  console.log(
-    '[NERO LLM] Groq is unavailable. Switching to OpenRouter.'
-  );
-
-  try {
-    return await askOpenRouter(
-      prompt,
-      started
-    );
-  } catch (error) {
-    console.error(
-      '[OPENROUTER] Failed: ' +
-      String(
-        error?.message ||
-        error
-      )
-    );
-
-    if (
-      !isNeroProviderFallbackError(
-        error
-      ) &&
-      !/OPENROUTER_API_KEY is missing/i.test(
-        String(
-          error?.message ||
-          error
-        )
-      )
-    ) {
-      throw error;
-    }
-  }
-
-  console.log(
-    '[NERO LLM] OpenRouter is unavailable. Trying NVIDIA NIM model pool.'
-  );
-
-  const nvidiaTextModels = [
-    {
-      label: 'Nemotron 3 Super 120B',
-      model:
-        process.env.NVIDIA_NIM_MODEL ||
-        'nvidia/nemotron-3-super-120b-a12b'
-    },
-    {
-      label: 'DeepSeek V4.1 Flash',
-      model:
-        process.env.NVIDIA_DEEPSEEK_MODEL ||
-        'deepseek-ai/deepseek-v4.1-flash'
-    },
-    {
-      label: 'Nemotron 3.5 Lightning 30B A3B',
-      model:
-        process.env.NVIDIA_LIGHTNING_MODEL ||
-        'nvidia/nemotron-3.5-lightning-30b-a3b'
-    }
-  ];
-
-  for (const candidate of nvidiaTextModels) {
     try {
       console.log(
-        '[NVIDIA NIM] Trying ' + candidate.label + ' (' + candidate.model + ')'
+        '[NVIDIA NIM] Trying ' +
+        candidate.label +
+        ' (' +
+        candidate.model +
+        ')' +
+        (media ? ' [' + media.kind + ']' : '')
       );
+
       return await askNvidiaNim(
         prompt,
         started,
-        candidate.model
+        candidate.model,
+        media
       );
     } catch (error) {
       console.error(
@@ -5194,36 +5132,20 @@ async function askGemini(
     }
   }
 
-  console.log(
-    '[NERO LLM] NVIDIA NIM model pool is unavailable. Switching to Cloudflare.'
-  );
+  if (!media) {
+    try {
+      return await askCloudflare(prompt, started);
+    } catch (error) {
+      console.error('[CLOUDFLARE] Failed: ' + String(error?.message || error));
+    }
 
-  try {
-    return await askCloudflare(
-      prompt,
-      started
-    );
-  } catch (error) {
-    console.error(
-      '[CLOUDFLARE] Failed: ' +
-      String(
-        error?.message ||
-        error
-      )
-    );
+    return await askMistral(prompt, started);
   }
 
-  console.log(
-    '[NERO LLM] Cloudflare is unavailable. Switching to Mistral.'
-  );
-
-  return await askMistral(
-    prompt,
-    started
+  throw new Error(
+    'No selected or automatic multimodal provider is available.'
   );
 }
-
-
 
 // NERO HISTORY RECAP FINAL
 const NERO_GROUP_HISTORY_FILE =
@@ -6056,9 +5978,9 @@ async function startNero() {
         const jid = message.key?.remoteJid;
         if (!jid || jid === 'status@broadcast') continue;
 
-        const visionMedia = getNeroVisionMedia(message);
+        const media = getNeroMedia(message);
         const text = getText(message)?.trim() || '';
-        if (!text && !visionMedia) continue;
+        if (!text && !media) continue;
 
         // Never let Nero's own outgoing messages re-enter
         // the recap detector or normal conversation pipeline.
@@ -6776,7 +6698,7 @@ const masterMentioned = mentionedJids.some(jid =>
         // In DMs, Nero only responds when explicitly prompted.
         // A prompt is saying/mentioning "Nero" or replying to Nero.
         // Group behavior remains unchanged.
-        const shouldRespond = visionMedia
+        const shouldRespond = media
           ? (
               isGroup
                 ? (
@@ -6799,117 +6721,6 @@ const masterMentioned = mentionedJids.some(jid =>
                     saidNero
                   )
             );
-
-        if (visionMedia && shouldRespond) {
-          const now = Date.now();
-          const last = lastResponseTime.get(jid) || 0;
-
-          if (now - last < COOLDOWN_MS) continue;
-          lastResponseTime.set(jid, now);
-
-          const mediaLabel =
-            visionMedia.kind === 'sticker'
-              ? '[Sticker]'
-              : '[Image]';
-
-          const senderLabel =
-            isMasterMessage
-              ? 'Master'
-              : isNeroDawnId(senderId)
-                ? 'Lord Dawn'
-                : sender;
-
-          const visionPrompt = [
-            'You are Nero Claudius, speaking directly to the sender as Nero.',
-            'Analyze the attached image or sticker and respond naturally to it.',
-            'Be concise, playful, and confident. Do not mention being an AI, model, prompt, or vision system.',
-            'Describe only what you can reasonably infer from the media; do not invent details.',
-            'Sender: ' + senderLabel,
-            text ? 'Caption/message: ' + text : 'There is no caption; react to the media itself.'
-          ].join('\n');
-
-          try {
-            console.log(
-              '[NERO VISION] ' +
-              mediaLabel +
-              ' from ' +
-              senderLabel
-            );
-
-            await sock.sendPresenceUpdate('composing', jid).catch(() => {});
-
-            const mediaBuffer =
-              await downloadNeroVisionMedia(visionMedia);
-
-            const reply =
-              await askNvidiaVision(
-                mediaBuffer,
-                visionMedia.mimeType,
-                visionPrompt,
-                now
-              );
-
-            await sock.sendPresenceUpdate('paused', jid).catch(() => {});
-
-            addToHistory(
-              jid,
-              isMasterMessage ? 'Master' : 'Group member',
-              mediaLabel + (text ? ' ' + text : '')
-            );
-
-            addToHistory(
-              jid,
-              BOT_NAME,
-              reply
-            );
-
-            rememberNeroBotOutbound(
-              jid,
-              reply
-            );
-
-            const sentMessage =
-              await sock.sendMessage(
-                jid,
-                { text: reply },
-                { quoted: message }
-              );
-
-            if (sentMessage?.key?.id) {
-              botSentMessageIds.add(
-                sentMessage.key.id
-              );
-
-              setTimeout(() => {
-                botSentMessageIds.delete(
-                  sentMessage.key.id
-                );
-              }, 5 * 60 * 1000);
-            }
-          } catch (visionError) {
-            await sock.sendPresenceUpdate('paused', jid).catch(() => {});
-            console.error(
-              '[NERO VISION] Failed:',
-              visionError?.message || visionError
-            );
-
-            const errorReply =
-              'My visual familiar is unavailable right now. Try the image again in a moment.';
-
-            rememberNeroBotOutbound(
-              jid,
-              errorReply
-            );
-
-            await sock.sendMessage(
-              jid,
-              { text: errorReply },
-              { quoted: message }
-            );
-          }
-
-          continue;
-        }
 
         // NERO NATURAL CALL RESPONSES
         // Simple calls do not need an LLM request.
@@ -6963,7 +6774,20 @@ const masterMentioned = mentionedJids.some(jid =>
         }
 
 
-        addToHistory(jid, isMasterMessage ? 'Master' : 'Group member', text);
+        const inputText = [
+          text,
+          media
+            ? '[' + media.kind.charAt(0).toUpperCase() + media.kind.slice(1) + ']'
+            : ''
+        ]
+          .filter(Boolean)
+          .join(' ');
+
+        addToHistory(
+          jid,
+          isMasterMessage ? 'Master' : 'Group member',
+          inputText
+        );
 
         if (
           isGroup &&
@@ -6978,18 +6802,31 @@ const masterMentioned = mentionedJids.some(jid =>
         if (now - last < COOLDOWN_MS) continue;
         lastResponseTime.set(jid, now);
 
-        console.log(`[${isGroup ? 'GROUP' : 'DM'}] ${sender}: ${text}`);
-        console.log(`${BOT_NAME} is thinking...`);
+        console.log(
+          '[' + (isGroup ? 'GROUP' : 'DM') + '] ' +
+          sender + ': ' + inputText
+        );
+        console.log(BOT_NAME + ' is thinking...');
 
         await sock.sendPresenceUpdate('composing', jid).catch(() => {});
-      const reply = await askGemini(
+
+        const mediaPayload = media
+          ? {
+              ...media,
+              buffer: await downloadNeroMedia(media)
+            }
+          : null;
+
+        const reply = await askGemini(
           sock,
           jid,
           sender,
           text,
-          senderId
+          senderId,
+          mediaPayload
         );
-      await sock.sendPresenceUpdate('paused', jid).catch(() => {});
+
+        await sock.sendPresenceUpdate('paused', jid).catch(() => {});
 
         addToHistory(jid, BOT_NAME, reply);
 
