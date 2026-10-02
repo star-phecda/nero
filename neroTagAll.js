@@ -29,6 +29,8 @@ function isTagAllCommand(text) {
   );
 }
 
+const DAWN_NUMBER = '2347066350574';
+
 function getConfiguredMasterNumbers() {
   return [
     process.env.MASTER_NUMBER,
@@ -49,6 +51,10 @@ function isMaster(sender) {
   if (!senderNumber) return false;
 
   return getConfiguredMasterNumbers().includes(senderNumber);
+}
+
+function isDawn(sender) {
+  return normalizeNumber(sender) === DAWN_NUMBER;
 }
 
 async function isGroupAdmin(sock, jid, sender) {
@@ -151,11 +157,11 @@ async function tagEveryone(sock, jid, message) {
 
 async function refuseUnauthorized(sock, jid, message) {
   const responses = [
-    'no, sorry. you’re not my Master.',
-    'nice try. you’re not my Master.',
-    'nope. that privilege is for my Master and group admins.',
-    'absolutely not. ask my Master.',
-    'you’re asking a lot for someone who isn’t my Master.',
+    'no, sorry. you’re not Master or Lord Dawn.',
+    'nice try. you’re not one of the two people with that privilege.',
+    'nope. that privilege is for Master, Lord Dawn, and group admins.',
+    'absolutely not. ask Master or Lord Dawn.',
+    'you’re asking a lot for someone who isn’t Master or Lord Dawn.',
     'cute. but no. you’re not authorized to summon the entire group.',
   ];
 
@@ -180,9 +186,10 @@ export async function handleNeroTagAllMessage({
   const sender = getSender(message);
 
   const master = isMaster(sender);
+  const dawn = isDawn(sender);
   const admin = await isGroupAdmin(sock, jid, sender);
 
-  if (!master && !admin) {
+  if (!master && !dawn && !admin) {
     await refuseUnauthorized(sock, jid, message);
     return true;
   }
