@@ -4426,7 +4426,10 @@ async function askNvidiaNim(
     ? [
         {
           type: 'text',
-          text: prompt
+          text:
+            media.kind === 'sticker'
+              ? prompt + '\n[Visual input is a WhatsApp sticker. Inspect the sticker itself.]'
+              : prompt
         },
         {
           type: 'image_url',
@@ -4731,7 +4734,12 @@ async function askGeminiDirect(
         {
           role: 'user',
           parts: [
-            { text: prompt },
+            {
+              text:
+                media.kind === 'sticker'
+                  ? prompt + '\n[Visual input is a WhatsApp sticker. Inspect the sticker itself.]'
+                  : prompt
+            },
             {
               inlineData: {
                 mimeType: media.mimeType || 'image/jpeg',
@@ -5000,11 +5008,17 @@ async function askGemini(
 ) {
   const started = Date.now();
 
+  const mediaPrompt = media
+    ? media.kind === 'sticker'
+      ? '[Sticker attached: inspect the actual sticker image and react to what is visually shown. Do not treat it as a text-only sticker marker.]'
+      : media.kind === 'image'
+        ? '[Image attached: inspect the actual image and respond to its visual content when relevant.]'
+        : '[Video attached: inspect the actual video content and respond to what is visually shown when relevant.]'
+    : '';
+
   const promptText = [
     text,
-    media
-      ? '[' + media.kind.charAt(0).toUpperCase() + media.kind.slice(1) + ' attached]'
-      : ''
+    mediaPrompt
   ]
     .filter(Boolean)
     .join('\n');
@@ -6817,6 +6831,18 @@ const masterMentioned = mentionedJids.some(jid =>
               buffer: await downloadNeroMedia(media)
             }
           : null;
+
+        if (mediaPayload) {
+          console.log(
+            '[NERO MEDIA] ' +
+            mediaPayload.kind +
+            ' downloaded (' +
+            mediaPayload.mimeType +
+            ', ' +
+            mediaPayload.buffer.length +
+            ' bytes)'
+          );
+        }
 
         const reply = await askGemini(
           sock,
