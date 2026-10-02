@@ -698,8 +698,18 @@ function neroGameSenderId(message, sock) {
   );
 }
 
-function neroGameSenderName(message) {
-  return message.key?.fromMe ? 'Master' : (message.pushName || 'Player');
+function neroGameSenderName(message, sock) {
+  if (message.key?.fromMe) return 'Master';
+
+  if (
+    isNeroDawnId(
+      neroGameSenderId(message, sock)
+    )
+  ) {
+    return 'Lord Dawn';
+  }
+
+  return message.pushName || 'Player';
 }
 
 async function neroGameSend(sock, jid, text) {
@@ -2572,7 +2582,7 @@ async function handleNeroImposterMessage({
     neroGameSenderId(message, sock);
 
   const playerName =
-    neroGameSenderName(message);
+    neroGameSenderName(message, sock);
 
   let game =
     neroImposterGames.get(jid);
@@ -3164,7 +3174,7 @@ async function handleNeroGameMessage({ sock, jid, message, text }) {
   const lower = text.trim().toLowerCase();
   const normalized = neroGameNormalize(text);
   const playerId = neroGameSenderId(message, sock);
-  const playerName = neroGameSenderName(message);
+  const playerName = neroGameSenderName(message, sock);
 
   let game = neroGames.get(jid);
 
