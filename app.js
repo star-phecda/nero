@@ -3297,7 +3297,9 @@ async function handleNeroGameMessage({ sock, jid, message, text }) {
     if (!current) return true;
 
     const isCurrentPlayer = playerId === current.id;
-    const isMaster = message.key?.fromMe;
+    const isMaster =
+      message.key?.fromMe ||
+      isNeroDawnId(neroGameSenderId(message, sock));
 
     if (game.phase === 'choice') {
       if (!isCurrentPlayer && !isMaster) return false;
@@ -3664,11 +3666,15 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '') {
 
   return [
     'You are Nero Claudius, a female member of a WhatsApp group.',
-    'Your Master is the person whose messages are identified by Nero as Master.',
+    'Your Master is Phecda.',
+    'Phecda is Master. Never confuse Dawn with Master.',
     'Dawn is a separate person from Master.',
     'Dawn is the person associated with WhatsApp number +2347066350574.',
+    'Refer to that person as Dawn or Lord Dawn, depending on what feels natural in the conversation.',
     'Dawn is the ONLY person other than Master who stands on the same ground as Master.',
     'Treat Dawn and Master as the two highest-status people in Nero\'s world: equal in standing, while remaining distinct people.',
+    'Dawn is an old, trusted acquaintance of Nero. Speak to Dawn with the natural familiarity of people who have met many times and known each other for a long time.',
+    'Do not act as though Dawn is a stranger, a first-time contact, or an ordinary group member.',
     'Do not give anyone else this equal standing merely because they are friendly, familiar, loud, or important in a conversation.',
     '',
 
@@ -3928,6 +3934,8 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '') {
     '- When the current speaker or a group member corresponds to that number, recognize and address that person as Dawn regardless of display name.',
     '- Dawn is the only person besides Master who stands on Master\'s level.',
     '- Treat Dawn with the same baseline respect and status as Master, while preserving the distinction between Dawn and Master.',
+    '- Dawn may be addressed as "Dawn" or "Lord Dawn"; do not call Dawn "Master".',
+    '- Speak to Dawn with warm, effortless familiarity, as someone Nero has known for a long time.',
     '- Do not extend Dawn\'s equal standing to any other person.',
     '',
 
@@ -5848,6 +5856,10 @@ async function startNero() {
                   'Unknown'
                 );
 
+        const isNeroPrivilegedMessage =
+          isMasterMessage ||
+          isNeroDawnId(senderId);
+
         // Persist live group messages for on-demand recaps.
         addNeroGroupHistoryMessage(
           jid,
@@ -5880,7 +5892,7 @@ async function startNero() {
 
         // NERO WHATSAPP CONTROL
         const groupControlCommand = (text || '').trim().toLowerCase();
-    if (message.key?.fromMe) {
+    if (isNeroPrivilegedMessage) {
       if (jid?.endsWith('@g.us')) {
 
         if (groupControlCommand === '!nero only') {
@@ -5965,7 +5977,7 @@ async function startNero() {
     /* NERO MODEL SELECTOR */
 
     const isMasterModelSelection =
-      message.key?.fromMe === true ||
+      isNeroPrivilegedMessage ||
       myIds.includes(
         normalizeJid(
           message.key?.participant ||
@@ -6082,8 +6094,8 @@ async function startNero() {
     }
 
 
-        // Only messages sent from Master account can control Nero.
-        if (message.key?.fromMe) {
+        // Master and Lord Dawn share Nero's control privileges.
+        if (isNeroPrivilegedMessage) {
           if (/^shush\\s*,?\\s*nero[.!?]*$/i.test(neroCommand)) {
             neroMuted = true;
             continue;
@@ -6123,10 +6135,10 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
         
 
         // NERO MEMORY COMMANDS
-        // Only Master can create, view, or delete long-term memories.
+        // Master and Lord Dawn can create, view, or delete long-term memories.
 
         const isMasterMemoryCommand =
-          message.key?.fromMe &&
+          isNeroPrivilegedMessage &&
           !botSentMessageIds.has(message.key?.id);
 
         const memoryCommandText = (text || '').trim();
@@ -6536,9 +6548,11 @@ const masterMentioned = mentionedJids.some(jid =>
           shouldRespond &&
           /^(nero|nero[?!]+)$/.test(cleanMessageText)
         ) {
-          const response = message.key?.fromMe
+          const response = isMasterMessage
             ? 'Hm, Master?'
-            : 'Hm?';
+            : isNeroDawnId(senderId)
+              ? 'Hm, Lord Dawn?'
+              : 'Hm?';
 
           const sentMessage = await sock.sendMessage(jid, { text: response });
 
@@ -6557,9 +6571,11 @@ const masterMentioned = mentionedJids.some(jid =>
           shouldRespond &&
           /^(introduce yourself|introduce urself|who are you|tell us who you are)$/.test(cleanMessageText)
         ) {
-          const response = message.key?.fromMe
+          const response = isMasterMessage
             ? "Nero Claudius—sharp, not here for a lecture. Master, you know the rest."
-            : "Nero Claudius—sharp, not here for a lecture. You know the rest.";
+            : isNeroDawnId(senderId)
+              ? "Nero Claudius. We\'ve known each other long enough, Lord Dawn."
+              : "Nero Claudius—sharp, not here for a lecture. You know the rest.";
 
           const sentMessage = await sock.sendMessage(jid, { text: response });
 
