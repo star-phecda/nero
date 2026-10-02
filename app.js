@@ -381,6 +381,31 @@ loadNeroModelSettings();
 // NERO LONG-TERM MEMORY
 const NERO_MEMORY_FILE = process.cwd() + '/nero_memory.json';
 
+// Canonical identity for Dawn inside Nero's world.
+// WhatsApp may expose either a phone JID, a device-suffixed JID, or a participantPn.
+const NERO_DAWN_PHONE = '2347066350574';
+
+function normalizeNeroPhone(value) {
+  const raw = String(value || '')
+    .split(':')[0]
+    .split('@')[0]
+    .replace(/[^0-9]/g, '');
+
+  if (!raw) return '';
+
+  // Accept local Nigerian form as well as the canonical +234 form.
+  if (raw.startsWith('0') && raw.length === 11) {
+    return '234' + raw.slice(1);
+  }
+
+  return raw;
+}
+
+function isNeroDawnId(value) {
+  return normalizeNeroPhone(value) === NERO_DAWN_PHONE;
+}
+
+
 let neroMemory = {
   master: [],
   groups: {}
@@ -3610,7 +3635,7 @@ async function neroRememberCurrentGroup(sock, jid) {
   return name;
 }
 
-async function buildPrompt(jid, sender, text, groupRoster) {
+async function buildPrompt(jid, sender, text, groupRoster, senderId = '') {
   const history = (conversations.get(jid) ?? []).slice(-12);
 
   const recent = history
@@ -3639,7 +3664,12 @@ async function buildPrompt(jid, sender, text, groupRoster) {
 
   return [
     'You are Nero Claudius, a female member of a WhatsApp group.',
-    'Your Master is Dawn.',
+    'Your Master is the person whose messages are identified by Nero as Master.',
+    'Dawn is a separate person from Master.',
+    'Dawn is the person associated with WhatsApp number +2347066350574.',
+    'Dawn is the ONLY person other than Master who stands on the same ground as Master.',
+    'Treat Dawn and Master as the two highest-status people in Nero\'s world: equal in standing, while remaining distinct people.',
+    'Do not give anyone else this equal standing merely because they are friendly, familiar, loud, or important in a conversation.',
     '',
 
     'CORE IDENTITY:',
@@ -3882,14 +3912,23 @@ async function buildPrompt(jid, sender, text, groupRoster) {
     '',
 
     'MASTER:',
-    '- Dawn is your Master.',
-    '- Treat Master with more familiarity and warmth than other group members.',
+    '- Master is the person who owns and runs Nero.',
+    '- Treat Master with deep familiarity and warmth.',
     '- Use "Master" naturally, not constantly.',
     '- You may tease Master.',
     '- You may disagree with Master.',
     '- You may be playful with Master.',
     '- Never call Master boss, bro, dude, homie, or similar terms.',
     '- When Master genuinely needs emotional support, respond sincerely rather than performing sarcasm.',
+    '',
+
+    'DAWN:',
+    '- Dawn is NOT Master.',
+    '- Identify Dawn by the canonical WhatsApp number +2347066350574.',
+    '- When the current speaker or a group member corresponds to that number, recognize and address that person as Dawn regardless of display name.',
+    '- Dawn is the only person besides Master who stands on Master\'s level.',
+    '- Treat Dawn with the same baseline respect and status as Master, while preserving the distinction between Dawn and Master.',
+    '- Do not extend Dawn\'s equal standing to any other person.',
     '',
 
     'OTHER PEOPLE:',
@@ -3921,7 +3960,15 @@ async function buildPrompt(jid, sender, text, groupRoster) {
     'RECENT CONVERSATION:',
     recent || '(none)',
     '',
-    'CURRENT SPEAKER ROLE: ' + sender,
+    'CURRENT SPEAKER ROLE: ' +
+      (isNeroDawnId(senderId)
+        ? 'Dawn'
+        : sender === 'Master'
+          ? 'Master'
+          : 'Group member') +
+      (isNeroDawnId(senderId)
+        ? ' (identified by +2347066350574)'
+        : ''),
     'CURRENT MESSAGE: ' + text,
     '',
     'FINAL INSTRUCTION:',
@@ -4712,7 +4759,8 @@ async function askGemini(
   sock,
   jid,
   sender,
-  text
+  text,
+  senderId = ''
 ) {
   const started = Date.now();
 
@@ -4724,7 +4772,8 @@ async function askGemini(
       await neroGetGroupRoster(
         sock,
         jid
-      )
+      ),
+      senderId
     );
 
   const selectedKey =
@@ -5774,11 +5823,26 @@ async function startNero() {
         }
 
         const isGroup = jid.endsWith('@g.us');
+        const isMasterMessage = message.key?.fromMe === true;
+        const senderId =
+          message.key?.participantPn ||
+          message.key?.participant ||
+          message.participant ||
+          (isMasterMessage
+            ? sock.user?.id
+            : '');
+
         const sender =
-          message.pushName ||
-          message.key.participant?.split('@')[0] ||
-          message.key.remoteJid?.split('@')[0] ||
-          'Unknown';
+          isMasterMessage
+            ? 'Master'
+            : isNeroDawnId(senderId)
+              ? 'Dawn'
+              : (
+                  message.pushName ||
+                  message.key.participant?.split('@')[0] ||
+                  message.key.remoteJid?.split('@')[0] ||
+                  'Unknown'
+                );
 
         // Persist live group messages for on-demand recaps.
         addNeroGroupHistoryMessage(
@@ -5788,8 +5852,6 @@ async function startNero() {
           text,
           messageTimestamp
         );
-
-        const isMasterMessage = message.key?.fromMe === true;
 
         const contextInfo =
           message.message?.extendedTextMessage?.contextInfo ||
@@ -6531,8 +6593,9 @@ const masterMentioned = mentionedJids.some(jid =>
       const reply = await askGemini(
           sock,
           jid,
-          isMasterMessage ? 'Master' : 'Group member',
-          text
+          sender,
+          text,
+          senderId
         );
       await sock.sendPresenceUpdate('paused', jid).catch(() => {});
 
