@@ -205,7 +205,7 @@ const NERO_MODEL_CATALOG = [
     provider: 'Groq',
     label: 'Qwen 3.8 27B',
     model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
-    media: '📝 text only'
+    media: '🖼️ images • 🏷️ stickers'
   },
   {
     key: 'openrouter_nemotron',
@@ -267,8 +267,8 @@ const NERO_MODEL_CATALOG = [
     key: 'mistral_small',
     provider: 'Mistral',
     label: 'Mistral Small 4',
-    model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
-    media: '📝 text only'
+    model: process.env.MISTRAL_MODEL || 'mistral-small-2603',
+    media: '🖼️ images • 🏷️ stickers'
   }
 ];
 
@@ -4357,7 +4357,8 @@ function isNeroProviderFallbackError(error) {
 async function askGroq(
   prompt,
   started,
-  modelOverride = null
+  modelOverride = null,
+  media = null
 ) {
   const groqApiKey = process.env.GROQ_API_KEY;
 
@@ -4372,6 +4373,36 @@ async function askGroq(
     process.env.GROQ_MODEL ||
     'qwen/qwen3.8-27b';
 
+  if (media && media.kind === 'video') {
+    throw new Error(
+      'Groq Qwen 3.8 does not support video input in Nero.'
+    );
+  }
+
+  const content = media
+    ? [
+        {
+          type: 'text',
+          text:
+            media.kind === 'sticker'
+              ? prompt +
+                '
+[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
+              : prompt
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url:
+              'data:' +
+              (media.mimeType || 'image/jpeg') +
+              ';base64,' +
+              Buffer.from(media.buffer).toString('base64')
+          }
+        }
+      ]
+    : prompt;
+
   const response = await fetch(
     'https://api.groq.com/openai/v1/chat/completions',
     {
@@ -4385,12 +4416,20 @@ async function askGroq(
         messages: [
           {
             role: 'user',
-            content: prompt
+            content
           }
         ],
         temperature: 0.7,
-        max_completion_tokens: 256,
-        reasoning_effort: 'none'
+        top_p: 0.8,
+        top_k: 20,
+        min_p: 0,
+        presence_penalty: 1.5,
+        max_completion_tokens: Number(
+          process.env.GROQ_MAX_COMPLETION_TOKENS || 768
+        ),
+        reasoning_effort: 'none',
+        reasoning_format: 'hidden',
+        stream: false
       })
     }
   );
@@ -4469,6 +4508,7 @@ async function askGroq(
   console.log(
     '[GROQ] ' +
     groqModel +
+    (media ? ' [' + media.kind + ']' : '') +
     ' — ' +
     (Date.now() - started) +
     ' ms'
@@ -4513,8 +4553,18 @@ async function askOpenRouter(
             content: prompt
           }
         ],
-        temperature: 0.7,
-        max_tokens: 256
+        temperature: 1,
+        top_p: 0.95,
+        max_tokens: Number(
+          process.env.NERO_OPENROUTER_MAX_TOKENS || 1024
+        ),
+        reasoning: {
+          effort: String(
+            process.env.NERO_OPENROUTER_REASONING_EFFORT || 'low'
+          ).trim().toLowerCase(),
+          exclude: true
+        },
+        stream: false
       })
     }
   );
@@ -4782,7 +4832,8 @@ async function askNvidiaNim(
 async function askMistral(
   prompt,
   started = Date.now(),
-  modelOverride = null
+  modelOverride = null,
+  media = null
 ) {
   const apiKey = process.env.MISTRAL_API_KEY;
   const baseUrl =
@@ -4790,11 +4841,39 @@ async function askMistral(
   const model =
     modelOverride ||
     process.env.MISTRAL_MODEL ||
-    'mistral-small-latest';
+    'mistral-small-2603';
 
   if (!apiKey) {
     throw new Error('MISTRAL_API_KEY is missing');
   }
+
+  if (media && media.kind === 'video') {
+    throw new Error(
+      'Mistral Small 4 does not support video input in Nero.'
+    );
+  }
+
+  const content = media
+    ? [
+        {
+          type: 'text',
+          text:
+            media.kind === 'sticker'
+              ? prompt +
+                '
+[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
+              : prompt
+        },
+        {
+          type: 'image_url',
+          image_url:
+            'data:' +
+            (media.mimeType || 'image/jpeg') +
+            ';base64,' +
+            Buffer.from(media.buffer).toString('base64')
+        }
+      ]
+    : prompt;
 
   const response = await fetch(
     baseUrl + '/chat/completions',
@@ -4809,11 +4888,14 @@ async function askMistral(
         messages: [
           {
             role: 'user',
-            content: prompt
+            content
           }
         ],
         temperature: 0.7,
-        max_tokens: 256
+        reasoning_effort: 'minimal',
+        max_tokens: Number(
+          process.env.MISTRAL_MAX_TOKENS || 768
+        )
       })
     }
   );
@@ -4846,6 +4928,7 @@ async function askMistral(
   console.log(
     '[MISTRAL] ' +
     model +
+    (media ? ' [' + media.kind + ']' : '') +
     ' — ' +
     (Date.now() - started) +
     ' ms'
@@ -5005,7 +5088,9 @@ async function askGeminiDirect(
             {
               text:
                 media.kind === 'sticker'
-                  ? prompt + '\n[Visual input is a WhatsApp sticker. Inspect the sticker itself.]'
+                  ? prompt +
+                    '
+[Visual input is a WhatsApp sticker. Inspect the actual sticker image and react to what is visually shown.]'
                   : prompt
             },
             {
@@ -5019,14 +5104,39 @@ async function askGeminiDirect(
       ]
     : prompt;
 
+  const modelName = String(model || '').toLowerCase();
+
+  const isGemini3 =
+    /gemini-3(?:\.\d+)?/i.test(modelName);
+
+  const isGemini3Lite =
+    /gemini-3\.(5|1)-flash-lite/i.test(modelName);
+
+  const config = {
+    maxOutputTokens: Number(
+      process.env.GEMINI_MAX_OUTPUT_TOKENS || 1024
+    )
+  };
+
+  // Gemini 3.x recommends thinking_level instead of sampling overrides.
+  // Use minimal on Flash-Lite and low on other Gemini 3 models for fast chat.
+  if (isGemini3) {
+    config.thinkingConfig = {
+      thinkingLevel:
+        String(
+          process.env.GEMINI_THINKING_LEVEL ||
+          (isGemini3Lite ? 'minimal' : 'low')
+        ).trim().toLowerCase()
+    };
+  } else {
+    config.temperature = 0.7;
+  }
+
   const response =
     await gemini.models.generateContent({
       model,
       contents,
-      config: {
-        temperature: 0.7,
-        maxOutputTokens: 256
-      }
+      config
     });
 
   const reply =
@@ -5083,7 +5193,7 @@ async function askNeroSelectedModel(
       );
 
     case 'groq_qwen':
-      return await askGroq(prompt, started, selected.model);
+      return await askGroq(prompt, started, selected.model, media);
 
     case 'openrouter_nemotron':
       return await askOpenRouter(prompt, started, selected.model);
@@ -5105,7 +5215,7 @@ async function askNeroSelectedModel(
       return await askCloudflare(prompt, started, selected.model);
 
     case 'mistral_small':
-      return await askMistral(prompt, started, selected.model);
+      return await askMistral(prompt, started, selected.model, media);
 
     default:
       throw new Error('Unknown selected model: ' + key);
@@ -5354,19 +5464,25 @@ async function askGemini(
     }
   }
 
-  if (!media) {
-    try {
-      return await askGroq(prompt, started);
-    } catch (error) {
-      console.error('[GROQ] Failed: ' + String(error?.message || error));
-      if (
-        !isNeroProviderFallbackError(error) &&
-        !/GROQ_API_KEY is missing/i.test(String(error?.message || error))
-      ) {
-        throw error;
-      }
+  try {
+    return await askGroq(
+      prompt,
+      started,
+      null,
+      media
+    );
+  } catch (error) {
+    console.error('[GROQ] Failed: ' + String(error?.message || error));
+    if (
+      !isNeroProviderFallbackError(error) &&
+      !/GROQ_API_KEY is missing/i.test(String(error?.message || error)) &&
+      !/does not support video/i.test(String(error?.message || error))
+    ) {
+      throw error;
     }
+  }
 
+  if (!media) {
     try {
       return await askOpenRouter(prompt, started);
     } catch (error) {
