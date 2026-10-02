@@ -405,6 +405,20 @@ function isNeroDawnId(value) {
   return normalizeNeroPhone(value) === NERO_DAWN_PHONE;
 }
 
+function neroDawnCandidates(message) {
+  return [
+    message?.key?.participantPn,
+    message?.key?.participant,
+    message?.key?.participantAlt,
+    message?.participant,
+    message?.key?.remoteJid,
+  ].filter(Boolean).map(String);
+}
+
+function isNeroDawnMessage(message) {
+  return neroDawnCandidates(message).some(isNeroDawnId);
+}
+
 
 let neroMemory = {
   master: [],
@@ -5842,22 +5856,28 @@ async function startNero() {
 
         const isGroup = jid.endsWith('@g.us');
         const isMasterMessage = message.key?.fromMe === true;
+        const dawnMessage =
+          !isMasterMessage &&
+          isNeroDawnMessage(message);
+
+        // WhatsApp can expose a LID before the actual phone JID.
+        // Check every available participant identity so Dawn is recognized
+        // even when participantPn/participant is not the phone number.
+        const senderCandidates = isMasterMessage
+          ? [sock.user?.id || '']
+          : neroDawnCandidates(message);
+
         const senderId =
           isMasterMessage
             ? (sock.user?.id || '')
-            : (
-                message.key?.participantPn ||
-                message.key?.participant ||
-                message.key?.participantAlt ||
-                message.participant ||
-                message.key?.remoteJid ||
-                ''
-              );
+            : dawnMessage
+              ? NERO_DAWN_PHONE
+              : (senderCandidates.find(Boolean) || '');
 
         const sender =
           isMasterMessage
             ? 'Master'
-            : isNeroDawnId(senderId)
+            : dawnMessage
               ? 'Dawn'
               : (
                   message.pushName ||
@@ -5868,7 +5888,7 @@ async function startNero() {
 
         const isNeroPrivilegedMessage =
           isMasterMessage ||
-          isNeroDawnId(senderId);
+          dawnMessage;
 
         // Persist live group messages for on-demand recaps.
         addNeroGroupHistoryMessage(
