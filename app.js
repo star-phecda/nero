@@ -272,6 +272,33 @@ const NERO_MODEL_CATALOG = [
   }
 ];
 
+
+function resolveNeroCatalogModelKey(modelId) {
+  const normalized = String(modelId || '').trim();
+  if (!normalized) return null;
+
+  const direct = NERO_MODEL_CATALOG.find(
+    model => model.key === normalized
+  );
+
+  if (direct) return direct.key;
+
+  const byModel = NERO_MODEL_CATALOG.find(
+    model => (
+      model.model &&
+      String(model.model).trim() === normalized
+    )
+  );
+
+  return byModel?.key || null;
+}
+
+function getConfiguredNvidiaModelKey() {
+  return resolveNeroCatalogModelKey(
+    process.env.NVIDIA_NIM_MODEL
+  );
+}
+
 function loadNeroModelSettings() {
   try {
     if (
@@ -322,10 +349,33 @@ function saveNeroModelSettings() {
 }
 
 function getNeroSelectedModel(jid) {
-  return (
-    neroModelSettings[jid] ||
-    'auto'
-  );
+  const saved = neroModelSettings[jid] || '';
+
+  // Older installs stored every NVIDIA_NIM_MODEL choice under the
+  // nvidia_nemotron key. If the actual env model now points at a
+  // different known NVIDIA catalog entry, follow the configured model
+  // instead of falsely reporting it as Nemotron.
+  const configuredNvidiaKey =
+    getConfiguredNvidiaModelKey();
+
+  if (
+    saved === 'nvidia_nemotron' &&
+    configuredNvidiaKey &&
+    configuredNvidiaKey !== 'nvidia_nemotron'
+  ) {
+    return configuredNvidiaKey;
+  }
+
+  if (
+    saved &&
+    NERO_MODEL_CATALOG.some(
+      model => model.key === saved
+    )
+  ) {
+    return saved;
+  }
+
+  return 'auto';
 }
 
 function setNeroSelectedModel(
@@ -4460,8 +4510,36 @@ async function askNvidiaNim(
             content
           }
         ],
-        temperature: 0.7,
-        max_tokens: 256
+        temperature:
+          /nemotron-3-super-120b-a12b/i.test(model)
+            ? 1.0
+            : 0.7,
+        top_p:
+          /nemotron-3-super-120b-a12b/i.test(model)
+            ? 0.95
+            : undefined,
+        max_tokens:
+          Number(
+            process.env.NVIDIA_NIM_MAX_TOKENS ||
+            (
+              /nemotron-3-super-120b-a12b/i.test(model)
+                ? 1024
+                : 256
+            )
+          ),
+        ...( /nemotron-3-super-120b-a12b/i.test(model)
+          ? {
+              chat_template_kwargs: {
+                enable_thinking:
+                  !/^(false|0|no)$/i.test(
+                    String(
+                      process.env.NVIDIA_NIM_ENABLE_THINKING ||
+                      'false'
+                    )
+                  )
+              }
+            }
+          : {})
       })
     }
   );
@@ -4490,12 +4568,23 @@ async function askNvidiaNim(
 
   const data = await response.json();
 
+  const choice = data?.choices?.[0];
   const reply =
-    data?.choices?.[0]?.message?.content?.trim();
+    choice?.message?.content?.trim();
 
   if (!reply) {
+    const finishReason =
+      choice?.finish_reason ||
+      data?.choices?.[0]?.finish_reason ||
+      '';
+
     throw new Error(
-      'NVIDIA NIM returned no text.'
+      'NVIDIA NIM returned no final text.' +
+      (
+        finishReason
+          ? ' finish_reason=' + finishReason
+          : ''
+      )
     );
   }
 
@@ -5036,9 +5125,13 @@ async function askGemini(
 
   if (selectedKey && selectedKey !== 'auto') {
     try {
+      const preferredModel =
+        getNeroModelInfo(selectedKey);
+
       console.log(
         '[NERO MODEL] Preferred:',
-        getNeroModelInfo(selectedKey).label
+        preferredModel.label,
+        '(' + (preferredModel.model || 'auto') + ')'
       );
 
       return await askNeroSelectedModel(
@@ -5050,6 +5143,8 @@ async function askGemini(
     } catch (error) {
       console.error(
         '[NERO MODEL] Preferred model failed:',
+        getNeroModelInfo(selectedKey).label,
+        '(' + (getNeroModelInfo(selectedKey).model || 'auto') + '):',
         error?.message || error
       );
       console.log(
@@ -5106,16 +5201,33 @@ async function askGemini(
     }
   }
 
+  const configuredNvidiaKey =
+    getConfiguredNvidiaModelKey();
+
+  const automaticNvidiaKeys = [
+    configuredNvidiaKey,
+    'nvidia_nemotron',
+    'nvidia_deepseek',
+    'nvidia_lightning',
+    'nvidia_glm',
+    'nvidia_muse',
+    'nvidia_kimi'
+  ]
+    .filter(Boolean)
+    .filter(
+      (key, index, array) =>
+        array.indexOf(key) === index
+    );
+
   const nvidiaKeys = media
-    ? ['nvidia_deepseek', 'nvidia_glm', 'nvidia_muse', 'nvidia_kimi']
-    : [
-        'nvidia_nemotron',
-        'nvidia_deepseek',
-        'nvidia_lightning',
-        'nvidia_glm',
-        'nvidia_muse',
-        'nvidia_kimi'
-      ];
+    ? automaticNvidiaKeys.filter(
+        key =>
+          neroModelSupportsMedia(
+            key,
+            media.kind
+          )
+      )
+    : automaticNvidiaKeys;
 
   for (const key of nvidiaKeys) {
     const candidate = getNeroModelInfo(key);
