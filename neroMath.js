@@ -52,9 +52,10 @@ function preparePercent(source) {
     .replace(/\bnCr\b/gi, 'combinations')
     .replace(/\bnPr\b/gi, 'permutations')
     .replace(
-      /(\d+(?:\.\d+)?)\s*%(?!\s*(?:of|increase|decrease|more|less)\b)/gi,
+      /(\d+(?:\.\d+)?)\s*%(?=\s*(?:$|[+\-*\/\),;]))/gi,
       '($1/100)'
-    );
+    )
+    .replace(/\*\*/g, '^');
 
   return value;
 }
@@ -108,107 +109,275 @@ function promptExpression(text) {
 }
 
 function solveEquation(source) {
-  const equation = String(source || '').trim();
-  const at = equation.indexOf('=');
-  if (at < 0) return null;
+  const equation =
+    String(source || '').trim();
 
-  const left = equation.slice(0, at);
-  const right = equation.slice(at + 1);
-  const variable = (equation.match(/\b([A-Za-z])\b/g) || [])
-    .find(name => !/^e$/i.test(name)) || 'x';
+  const at =
+    equation.indexOf('=');
 
-  const f = x => {
-    const a = evaluate(left, { [variable]: x });
-    const b = evaluate(right, { [variable]: x });
-    if (a == null || b == null) return null;
+  if (at < 0) {
+    return null;
+  }
 
-    const av = Number(a);
-    const bv = Number(b);
-    return Number.isFinite(av) && Number.isFinite(bv)
-      ? av - bv
-      : null;
-  };
+  const left =
+    equation.slice(0, at);
 
-  const y0 = f(0);
-  const y1 = f(1);
-  const ym1 = f(-1);
-  const y2 = f(2);
+  const right =
+    equation.slice(at + 1);
+
+  const variables =
+    (
+      equation.match(
+        /\b([A-Za-z])\b/g
+      ) || []
+    ).filter(
+      name =>
+        !/^e$/i.test(name)
+    );
+
+  const variable =
+    variables[0] || 'x';
 
   if (
-    [y0, y1, ym1, y2].some(
-      v => !Number.isFinite(v)
+    variables.some(
+      name => name !== variable
     )
   ) {
     return null;
   }
 
-  const a = (y2 - 2 * y1 + y0) / 2;
-  const b = y1 - y0 - a;
-  const c = y0;
+  try {
+    const detailed =
+      math.rationalize(
+        '(' +
+        left +
+        ')-(' +
+        right +
+        ')',
+        {},
+        true
+      );
 
-  if (Math.abs(a) < 1e-10) {
-    if (Math.abs(b) < 1e-10) {
-      return Math.abs(c) < 1e-10
-        ? 'Every real value is a solution.'
-        : 'No solution.';
+    if (
+      !detailed ||
+      !Array.isArray(
+        detailed.variables
+      ) ||
+      (
+        detailed.variables.length &&
+        (
+          detailed.variables.length !== 1 ||
+          detailed.variables[0] !== variable
+        )
+      )
+    ) {
+      return null;
+    }
+
+    const coefficients =
+      (
+        detailed.coefficients || []
+      ).map(
+        Number
+      );
+
+    while (
+      coefficients.length > 1 &&
+      Math.abs(
+        coefficients[
+          coefficients.length - 1
+        ]
+      ) < 1e-12
+    ) {
+      coefficients.pop();
+    }
+
+    if (
+      coefficients.length < 2 ||
+      coefficients.length > 4 ||
+      coefficients.some(
+        value =>
+          !Number.isFinite(value)
+      )
+    ) {
+      return null;
+    }
+
+    const roots =
+      math.polynomialRoot(
+        ...coefficients
+      );
+
+    if (
+      !Array.isArray(roots) ||
+      !roots.length
+    ) {
+      return null;
     }
 
     return (
       variable +
       ' = ' +
-      format(-c / b) +
+      roots
+        .map(
+          value =>
+            format(value)
+        )
+        .join(
+          ' or ' +
+          variable +
+          ' = '
+        ) +
       '.'
     );
+  } catch {
+    return null;
   }
+}
 
-  const d = b * b - 4 * a * c;
+function exactFractionReply(text) {
+  const source =
+    String(text || '')
+      .trim()
+      .replace(
+        /^(?:nero[,:]?\s*)/i,
+        ''
+      );
 
-  if (d < 0) {
-    const real = -b / (2 * a);
-    const imaginary =
-      Math.sqrt(-d) / Math.abs(2 * a);
-
-    return (
-      variable +
-      ' = ' +
-      format(real) +
-      ' + ' +
-      format(imaginary) +
-      'i or ' +
-      variable +
-      ' = ' +
-      format(real) +
-      ' - ' +
-      format(imaginary) +
-      'i.'
+  const match =
+    source.match(
+      /^(?:fraction|exact\s+fraction|convert)\s+(.+?)(?:\s+to\s+(?:an?\s+)?fraction)?\??$/i
     );
+
+  if (!match) {
+    return null;
   }
 
-  if (Math.abs(d) < 1e-12) {
+  const expression =
+    match[1].trim();
+
+  if (
+    !safeExpression(
+      normalize(
+        expression
+      )
+    )
+  ) {
+    return null;
+  }
+
+  const value =
+    evaluate(
+      expression
+    );
+
+  if (
+    value == null
+  ) {
+    return null;
+  }
+
+  try {
+    const result =
+      math.fraction(
+        value
+      );
+
+    return math.format(
+      result,
+      {
+        fraction: 'ratio'
+      }
+    ) + '.';
+  } catch {
+    return null;
+  }
+}
+
+function symbolicSimplifyReply(text) {
+  const source =
+    String(text || '')
+      .trim()
+      .replace(
+        /^(?:nero[,:]?\s*)/i,
+        ''
+      );
+
+  const match =
+    source.match(
+      /^(?:simplify|simplify\s+this)\s+(.+?)\??$/i
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  const expression =
+    match[1].trim();
+
+  if (
+    !safeExpression(
+      normalize(
+        expression
+      )
+    )
+  ) {
+    return null;
+  }
+
+  try {
     return (
-      variable +
-      ' = ' +
-      format(-b / (2 * a)) +
+      math.simplify(
+        expression
+      ).toString() +
       '.'
     );
+  } catch {
+    return null;
+  }
+}
+
+function rationalizeReply(text) {
+  const source =
+    String(text || '')
+      .trim()
+      .replace(
+        /^(?:nero[,:]?\s*)/i,
+        ''
+      );
+
+  const match =
+    source.match(
+      /^(?:rationalize|put\s+into\s+(?:a\s+)?rational\s+form)\s+(.+?)\??$/i
+    );
+
+  if (!match) {
+    return null;
   }
 
-  const root = Math.sqrt(d);
+  const expression =
+    match[1].trim();
 
-  return (
-    variable +
-    ' = ' +
-    format(
-      (-b + root) / (2 * a)
-    ) +
-    ' or ' +
-    variable +
-    ' = ' +
-    format(
-      (-b - root) / (2 * a)
-    ) +
-    '.'
-  );
+  if (
+    !safeExpression(
+      normalize(
+        expression
+      )
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    return (
+      math.rationalize(
+        expression
+      ).toString() +
+      '.'
+    );
+  } catch {
+    return null;
+  }
 }
 
 function numericalIntegral(
@@ -861,6 +1030,27 @@ export function neroAdvancedMath(
       /^(?:nero[,:]?\s*)/i,
       ''
     );
+
+  const fractionReply =
+    exactFractionReply(original);
+
+  if (fractionReply !== null) {
+    return fractionReply;
+  }
+
+  const simplifyReply =
+    symbolicSimplifyReply(original);
+
+  if (simplifyReply !== null) {
+    return simplifyReply;
+  }
+
+  const rationalize =
+    rationalizeReply(original);
+
+  if (rationalize !== null) {
+    return rationalize;
+  }
 
   const graphMatch =
     withoutName.match(
