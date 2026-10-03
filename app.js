@@ -7657,158 +7657,213 @@ async function startNero() {
 
 
         // MASTER-ONLY OUTBOUND DM
-        // Explicit command:
-        // !nero dm <phone> <instruction>
-        // Nero reads the current conversation for context, drafts the
-        // message, and sends it directly to the requested WhatsApp number.
-        if (
-          isMasterMessage &&
-          /^!nero\s+dm\b/i.test(
-            String(text || '').trim()
-          )
-        ) {
-          const dmMatch =
-            String(text || '')
-              .trim()
-              .match(
-                /^!nero\s+dm\s+(\S+)\s+([\s\S]+)$/i
+        // Supports both explicit and natural commands, for example:
+        //   !nero dm 2348012345678 apologize for earlier.
+        //   Nero dm 2348012345678 apologize for earlier.
+        //   !Nero apologize to +2348012345678 in his dms
+        //   Nero apologize to 2348012345678
+        if (isMasterMessage) {
+          const dmText =
+            String(text || '').trim();
+
+          const parseNeroDmCommand = input => {
+            const source = String(input || '').trim();
+
+            // Strip optional ! and Nero's name, while allowing
+            // punctuation such as "Nero," or "Nero:".
+            const prefixMatch =
+              source.match(
+                /^!?nero(?:\s*[,!:;-])?\s+([\s\S]+)$/i
               );
 
-          if (!dmMatch) {
-            await sendNeroControlMessage(
-              sock,
-              jid,
-              'Usage: !nero dm <phone> <what you want me to say>\\n\\nI will read this conversation for context before sending the DM.'
+            if (!prefixMatch) {
+              return null;
+            }
+
+            const body =
+              prefixMatch[1].trim();
+
+            // Explicit form:
+            // Nero dm <phone> <instruction>
+            let match =
+              body.match(
+                /^(?:dm|message|msg|send\s+(?:a\s+)?dm\s+to)\s+(\+?\d[\d\s().-]{8,}\d)\s+([\s\S]+)$/i
+              );
+
+            if (match) {
+              return {
+                target: match[1].trim(),
+                instruction: match[2].trim()
+              };
+            }
+
+            // Natural form:
+            // Nero apologize to <phone> in his/her/their dms
+            // Also accepts the same wording without "in ... dms".
+            match =
+              body.match(
+                /^([\s\S]+?)\s+to\s+(\+?\d[\d\s().-]{8,}\d)(?:\s+in\s+(?:his|her|their|the)\s+dms?)?\s*$/i
+              );
+
+            if (match) {
+              return {
+                target: match[2].trim(),
+                instruction: match[1].trim()
+              };
+            }
+
+            // Natural "send/message" form:
+            // Nero send 234... a message saying sorry.
+            match =
+              body.match(
+                /^(?:send|message|msg|write)\s+(\+?\d[\d\s().-]{8,}\d)(?:\s+(?:a\s+)?(?:message|dm))?\s+(?:saying|that|to\s+say)?\s*([\s\S]+)$/i
+              );
+
+            if (match) {
+              return {
+                target: match[1].trim(),
+                instruction: match[2].trim()
+              };
+            }
+
+            return null;
+          };
+
+          const dmRequest =
+            parseNeroDmCommand(
+              dmText
             );
-            continue;
-          }
 
-          const targetJid =
-            normalizeNeroDmTarget(
-              dmMatch[1]
-            );
+          if (dmRequest) {
+            const targetJid =
+              normalizeNeroDmTarget(
+                dmRequest.target
+              );
 
-          const instruction =
-            String(
-              dmMatch[2] || ''
-            ).trim();
+            const instruction =
+              String(
+                dmRequest.instruction || ''
+              ).trim();
 
-          if (!targetJid) {
-            await sendNeroControlMessage(
-              sock,
-              jid,
-              'That does not look like a valid WhatsApp phone number.'
-            );
-            continue;
-          }
-
-          if (!instruction) {
-            await sendNeroControlMessage(
-              sock,
-              jid,
-              'Tell me what you want me to say.'
-            );
-            continue;
-          }
-
-          try {
-            console.log(
-              '[NERO DM] Preparing outbound DM:',
-              targetJid
-            );
-
-            const prompt =
-              buildNeroOutboundDmPrompt(
+            if (!targetJid) {
+              await sendNeroControlMessage(
+                sock,
                 jid,
+                'That does not look like a valid WhatsApp phone number.'
+              );
+              continue;
+            }
+
+            if (!instruction) {
+              await sendNeroControlMessage(
+                sock,
+                jid,
+                'Tell me what you want me to say.'
+              );
+              continue;
+            }
+
+            try {
+              console.log(
+                '[NERO DM] Preparing outbound DM:',
                 targetJid,
+                '| Instruction:',
                 instruction
               );
 
-            const reply =
-              cleanNeroOutboundDmText(
-                await askNeroRecap(
+              const prompt =
+                buildNeroOutboundDmPrompt(
                   jid,
-                  prompt
-                )
-              );
+                  targetJid,
+                  instruction
+                );
 
-            if (!reply) {
-              throw new Error(
-                'Nero generated an empty DM.'
-              );
-            }
+              const reply =
+                cleanNeroOutboundDmText(
+                  await askNeroRecap(
+                    jid,
+                    prompt
+                  )
+                );
 
-            await sock.sendPresenceUpdate(
-              'composing',
-              targetJid
-            ).catch(() => {});
+              if (!reply) {
+                throw new Error(
+                  'Nero generated an empty DM.'
+                );
+              }
 
-            const sentMessage =
-              await sock.sendMessage(
-                targetJid,
-                { text: reply }
-              );
+              await sock.sendPresenceUpdate(
+                'composing',
+                targetJid
+              ).catch(() => {});
 
-            await sock.sendPresenceUpdate(
-              'paused',
-              targetJid
-            ).catch(() => {});
+              const sentMessage =
+                await sock.sendMessage(
+                  targetJid,
+                  { text: reply }
+                );
 
-            if (sentMessage?.key?.id) {
-              botSentMessageIds.add(
-                sentMessage.key.id
-              );
+              await sock.sendPresenceUpdate(
+                'paused',
+                targetJid
+              ).catch(() => {});
 
-              setTimeout(() => {
-                botSentMessageIds.delete(
+              if (sentMessage?.key?.id) {
+                botSentMessageIds.add(
                   sentMessage.key.id
                 );
-              }, 5 * 60 * 1000);
+
+                setTimeout(() => {
+                  botSentMessageIds.delete(
+                    sentMessage.key.id
+                  );
+                }, 5 * 60 * 1000);
+              }
+
+              addToHistory(
+                targetJid,
+                BOT_NAME,
+                reply
+              );
+
+              rememberNeroBotOutbound(
+                targetJid,
+                reply
+              );
+
+              await sendNeroControlMessage(
+                sock,
+                jid,
+                '✅ Sent the DM to +' +
+                targetJid.split('@')[0] +
+                '.\n\n' +
+                reply
+              );
+
+              console.log(
+                '[NERO DM] Sent to ' +
+                targetJid +
+                ': ' +
+                reply
+              );
+            } catch (error) {
+              console.error(
+                '[NERO DM] Failed:',
+                error?.message || error
+              );
+
+              await sendNeroControlMessage(
+                sock,
+                jid,
+                'I could not send that DM: ' +
+                String(
+                  error?.message || error
+                )
+              );
             }
 
-            addToHistory(
-              targetJid,
-              BOT_NAME,
-              reply
-            );
-
-            rememberNeroBotOutbound(
-              targetJid,
-              reply
-            );
-
-            await sendNeroControlMessage(
-              sock,
-              jid,
-              '✅ Sent the DM to +' +
-              targetJid.split('@')[0] +
-              '.\\n\\n' +
-              reply
-            );
-
-            console.log(
-              '[NERO DM] Sent to ' +
-              targetJid +
-              ': ' +
-              reply
-            );
-          } catch (error) {
-            console.error(
-              '[NERO DM] Failed:',
-              error?.message || error
-            );
-
-            await sendNeroControlMessage(
-              sock,
-              jid,
-              'I could not send that DM: ' +
-              String(
-                error?.message || error
-              )
-            );
+            continue;
           }
-
-          continue;
         }
 
         // Master and Lord Dawn share Nero's control privileges.
