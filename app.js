@@ -8231,7 +8231,7 @@ async function startNero() {
             // saying renzo is short. Make it seem like it's you.
             let match =
               body.match(
-                /^(?:send|message|msg|write)\\s+(?:a\\s+)?message\\s+to\\s+(?:the\\s+)?group\\s+[\\"“]([^\\"”]+)[\\"”]\\s+(?:saying|that)\\s+([\\s\\S]+)$/i
+                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+["“]([^"”]+)["”]\s+(?:saying|that)\s+([\s\S]+)$/i
               );
 
             if (match) {
@@ -8245,21 +8245,24 @@ async function startNero() {
             // clearly separates the target from the message.
             match =
               body.match(
-                /^(?:send|message|msg|write)\\s+(?:a\\s+)?message\\s+to\\s+(?:the\\s+)?group\\s+(.+?)\\s+(?:saying|that)\\s+([\\s\\S]+)$/i
+                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+(.+?)\s+(?:saying|that)\s+([\s\S]+)$/i
               );
 
             if (match) {
               return {
                 groupName: match[1]
                   .trim()
-                  .replace(/^[\\"“]|[\\"”]$/g, ''),
+                  .replace(/^["“]|["”]$/g, ''),
                 instruction: match[2].trim()
               };
             }
 
             // Explicit form:
             // Nero dm <phone> <instruction>
-            let match =
+            match =
+              body.match(            // Explicit form:
+            // Nero dm <phone> <instruction>
+            match =
               body.match(
                 /^(?:dm|message|msg|send\s+(?:a\s+)?dm\s+to)\s+(\+?\d[\d\s().-]{8,}\d)\s+([\s\S]+)$/i
               );
