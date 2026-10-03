@@ -287,6 +287,20 @@ const NERO_MODEL_CATALOG = [
     media: '🖼️ images • 🏷️ stickers'
   },
   {
+    key: 'apmix_claude_sonnet46',
+    provider: 'APMIX',
+    label: 'Claude Sonnet 4.6 Free',
+    model: process.env.APMIX_CLAUDE_SONNET46_MODEL || 'claude-sonnet-4-6-free',
+    media: '📝 text only'
+  },
+  {
+    key: 'apmix_space_bunny',
+    provider: 'APMIX',
+    label: 'Space Bunny Free',
+    model: process.env.APMIX_SPACE_BUNNY_MODEL || 'space-bunny-free',
+    media: '📝 text only'
+  },
+  {
     key: 'vercel_gpt61_sol',
     provider: 'Vercel AI Gateway',
     label: 'GPT-6.1 Sol',
@@ -697,6 +711,13 @@ function neroQuotaText(key) {
 
   if (key === 'mistral_small') {
     return 'Account limits • check Mistral Studio';
+  }
+
+  if (
+    key === 'apmix_claude_sonnet46' ||
+    key === 'apmix_space_bunny'
+  ) {
+    return 'APMIX • account allowance';
   }
 
   if (
@@ -5321,6 +5342,128 @@ async function askCloudflare(
   return reply;
 }
 
+
+async function askApmix(
+  prompt,
+  started = Date.now(),
+  modelOverride = null,
+  media = null
+) {
+  const apiKey = String(process.env.APMIX_API_KEY || '').trim();
+
+  if (!apiKey) {
+    throw new Error(
+      'APMIX_API_KEY is missing. APMIX is unavailable.'
+    );
+  }
+
+  if (media) {
+    throw new Error(
+      'APMIX free models are configured as text-only in Nero.'
+    );
+  }
+
+  const baseUrl = String(
+    process.env.APMIX_BASE_URL ||
+    'https://api.apmix.ai/v1'
+  ).replace(/\/+$/, '');
+
+  const model =
+    modelOverride ||
+    process.env.APMIX_CLAUDE_SONNET46_MODEL ||
+    'claude-sonnet-4-6-free';
+
+  const response = await fetch(
+    baseUrl + '/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: Number(
+          process.env.APMIX_MAX_TOKENS || 768
+        ),
+        stream: false
+      })
+    }
+  );
+
+  const raw = await response.text();
+
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {}
+
+  if (!response.ok) {
+    const details =
+      data?.error?.message ||
+      data?.message ||
+      raw ||
+      '';
+
+    const error = new Error(
+      'APMIX request failed (' +
+      response.status +
+      ')' +
+      (details ? ': ' + details : '.')
+    );
+
+    error.status = response.status;
+    error.apmixModel = model;
+    error.apmixRequestId =
+      response.headers.get('x-apmix-request-id') || '';
+    throw error;
+  }
+
+  let reply =
+    data?.choices?.[0]?.message?.content ??
+    data?.choices?.[0]?.text ??
+    '';
+
+  if (Array.isArray(reply)) {
+    reply = reply
+      .map(part => {
+        if (typeof part === 'string') return part;
+        return (
+          part?.text ||
+          part?.content ||
+          ''
+        );
+      })
+      .filter(Boolean)
+      .join('');
+  }
+
+  reply = String(reply).trim();
+
+  if (!reply) {
+    throw new Error(
+      'APMIX returned no text.'
+    );
+  }
+
+  console.log(
+    '[APMIX] ' +
+    model +
+    (media ? ' [' + media.kind + ']' : '') +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
 async function askVercelAIGateway(
   prompt,
   started = Date.now(),
@@ -5630,6 +5773,15 @@ async function askNeroSelectedModel(
     case 'mistral_small':
       return await askMistral(prompt, started, selected.model, media);
 
+    case 'apmix_claude_sonnet46':
+    case 'apmix_space_bunny':
+      return await askApmix(
+        prompt,
+        started,
+        selected.model,
+        media
+      );
+
     case 'vercel_gpt61_sol':
     case 'vercel_gpt6_luna':
     case 'vercel_claude_opus55':
@@ -5928,6 +6080,49 @@ async function askGemini(
       ) {
         throw error;
       }
+    }
+  }
+
+  const automaticApmixKeys = [
+    'apmix_claude_sonnet46',
+    'apmix_space_bunny'
+  ];
+
+  const apmixKeys = media
+    ? automaticApmixKeys.filter(
+        key =>
+          neroModelSupportsMedia(
+            key,
+            media.kind
+          )
+      )
+    : automaticApmixKeys;
+
+  for (const key of apmixKeys) {
+    const candidate = getNeroModelInfo(key);
+
+    try {
+      console.log(
+        '[APMIX] Trying ' +
+        candidate.label +
+        ' (' +
+        candidate.model +
+        ')'
+      );
+
+      return await askApmix(
+        prompt,
+        started,
+        candidate.model,
+        media
+      );
+    } catch (error) {
+      console.error(
+        '[APMIX] ' +
+        candidate.label +
+        ' failed: ' +
+        String(error?.message || error)
+      );
     }
   }
 
