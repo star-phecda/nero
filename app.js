@@ -8260,9 +8260,6 @@ async function startNero() {
             // Explicit form:
             // Nero dm <phone> <instruction>
             match =
-              body.match(            // Explicit form:
-            // Nero dm <phone> <instruction>
-            match =
               body.match(
                 /^(?:dm|message|msg|send\s+(?:a\s+)?dm\s+to)\s+(\+?\d[\d\s().-]{8,}\d)\s+([\s\S]+)$/i
               );
