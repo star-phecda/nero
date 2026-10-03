@@ -6996,8 +6996,7 @@ async function resolveNeroOutboundGroup(sock, requestedName) {
 async function sendNeroOutboundTaggedGroupMessage(
   sock,
   jid,
-  text,
-  replyToMessage = null
+  text
 ) {
   const metadata =
     await sock.groupMetadata(jid);
@@ -7019,10 +7018,7 @@ async function sendNeroOutboundTaggedGroupMessage(
   if (!targets.length) {
     return await sock.sendMessage(
       jid,
-      { text },
-      replyToMessage
-        ? { quoted: replyToMessage }
-        : undefined
+      { text }
     );
   }
 
@@ -7056,9 +7052,7 @@ async function sendNeroOutboundTaggedGroupMessage(
           text: payloadText,
           mentions: group
         },
-        index === 0 && replyToMessage
-          ? { quoted: replyToMessage }
-          : undefined
+        undefined
       );
 
     if (!firstMessage) {
@@ -8597,8 +8591,7 @@ async function startNero() {
                   ? await sendNeroOutboundTaggedGroupMessage(
                       sock,
                       targetJid,
-                      reply,
-                      message
+                      reply
                     )
                   : await sock.sendMessage(
                       targetJid,
