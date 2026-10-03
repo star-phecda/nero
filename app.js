@@ -4140,6 +4140,13 @@ function neroPreviousUserQuery(
       continue;
     }
 
+    const looksLikeSearchInstruction =
+      /^(?:!?(?:nero)\s*[,!:;-]?\s*)?(?:(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?(?:search\s+(?:the\s+)?(?:web|internet)|web\s+search|search\s+online)|(?:look\s+(?:this|it)\s+up(?:\s+online)?|check\s+the\s+internet|find\s+(?:(?:this|it|that)\s+)?out\s+online)).*$/i.test(candidate);
+
+    if (looksLikeSearchInstruction) {
+      continue;
+    }
+
     return candidate;
   }
 
