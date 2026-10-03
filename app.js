@@ -4337,24 +4337,17 @@ function neroAppendWebSources(
       .slice(0, 3)
       .map(
         (source, index) =>
-          (
-            index + 1
-          ) +
+          (index + 1) +
           '. ' +
           source.title +
-          '
-' +
+          '\n' +
           source.url
       )
-      .join('
-');
+      .join('\n');
 
   return (
     output +
-    '
-
-Sources:
-' +
+    '\n\nSources:\n' +
     sources
   ).trim();
 }
