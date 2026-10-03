@@ -6561,7 +6561,7 @@ function buildNeroOutboundDmPrompt(
     '- Do not add a preamble such as "Sure" or "Here is the message".',
     '- Do not wrap the message in quotation marks.',
     '- Keep it natural and concise unless the Master explicitly asks for detail.',
-    '- Preserve the Master\\'s intended meaning. Do not invent facts.',
+    '- Preserve the Master\'s intended meaning. Do not invent facts.',
     '',
     'SOURCE CONVERSATION:',
     context
