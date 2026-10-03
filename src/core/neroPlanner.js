@@ -60,10 +60,10 @@ export class NeroPlanner {
       projectTask;
 
     const needsTools =
+      mode === 'god' ||
       Boolean(context.toolHint) ||
       TOOL_PATTERN.test(input) ||
-      hasMedia ||
-      (mode === 'god' && (needsWebSearch || needsStrongReasoning));
+      hasMedia;
 
     const needsDeepReasoning =
       mode === 'god' ||
