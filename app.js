@@ -7386,24 +7386,51 @@ async function startNero() {
         }
 
         const isGroup = jid.endsWith('@g.us');
-        const isMasterMessage = message.key?.fromMe === true;
+
+        // Master and Lord Dawn share Nero's control privileges.
+        // These canonical numbers are used for controller recognition.
+        const NERO_MASTER_PHONE = '2349129074607';
+        const NERO_DAWN_PHONE_CANONICAL = '2347066350574';
+
+        const senderIdentityCandidates = [
+          message.key?.participantPn,
+          message.key?.participant,
+          message.key?.participantAlt,
+          message.participant,
+          message.key?.remoteJid,
+        ]
+          .filter(Boolean)
+          .map(String);
+
+        const senderMatchesPhone =
+          phone =>
+            Boolean(phone) &&
+            senderIdentityCandidates.some(
+              candidate =>
+                normalizeNeroPhone(candidate) === phone
+            );
+
+        const isMasterMessage =
+          message.key?.fromMe === true ||
+          senderMatchesPhone(
+            NERO_MASTER_PHONE
+          );
+
         const dawnMessage =
           !isMasterMessage &&
-          isNeroDawnMessage(message);
-
-        // WhatsApp can expose a LID before the actual phone JID.
-        // Check every available participant identity so Dawn is recognized
-        // even when participantPn/participant is not the phone number.
-        const senderCandidates = isMasterMessage
-          ? [sock.user?.id || '']
-          : neroDawnCandidates(message);
+          (
+            senderMatchesPhone(
+              NERO_DAWN_PHONE_CANONICAL
+            ) ||
+            isNeroDawnMessage(message)
+          );
 
         const senderId =
           isMasterMessage
-            ? (sock.user?.id || '')
+            ? NERO_MASTER_PHONE
             : dawnMessage
-              ? NERO_DAWN_PHONE
-              : (senderCandidates.find(Boolean) || '');
+              ? NERO_DAWN_PHONE_CANONICAL
+              : (senderIdentityCandidates.find(Boolean) || '');
 
         const sender =
           isMasterMessage
