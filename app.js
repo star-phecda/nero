@@ -17,6 +17,7 @@ import makeWASocket, {
   proto,
   generateWAMessageFromContent,
   downloadContentFromMessage,
+  normalizeMessageContent,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 
@@ -3912,8 +3913,18 @@ function getInteractiveReplyId(message) {
   return null;
 }
 
+function getNeroMessageContent(message) {
+  const raw = message?.message;
+  if (!raw) return null;
+
+  // WhatsApp can wrap real message content in ephemeral/view-once/
+  // document-with-caption containers. Baileys' helper recursively
+  // unwraps those containers before we inspect the actual message.
+  return normalizeMessageContent(raw) || raw;
+}
+
 function getText(message) {
-  const msg = message?.message;
+  const msg = getNeroMessageContent(message);
   if (!msg) return null;
 
   const interactiveReply = getInteractiveReplyId(message);
@@ -3930,7 +3941,7 @@ function getText(message) {
 }
 
 function getNeroMedia(message) {
-  const msg = message?.message;
+  const msg = getNeroMessageContent(message);
   if (!msg) return null;
 
   if (msg.imageMessage) {
@@ -7788,6 +7799,19 @@ async function startNero() {
 
         const media = getNeroMedia(message);
         const text = getText(message)?.trim() || '';
+
+        if (media) {
+          console.log(
+            '[NERO MEDIA] Incoming ' +
+            media.kind +
+            ' from ' +
+            (message?.pushName || 'Unknown') +
+            ' (' +
+            media.mimeType +
+            ')'
+          );
+        }
+
         if (!text && !media) continue;
 
         // Never let Nero's own outgoing messages re-enter
