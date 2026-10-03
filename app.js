@@ -543,8 +543,16 @@ function saveNeroModelSettings() {
   }
 }
 
+function getNeroModelSettingKey(jid) {
+  return normalizeJid(jid) || String(jid || '');
+}
+
 function getNeroSelectedModel(jid) {
-  const saved = neroModelSettings[jid] || '';
+  const settingKey = getNeroModelSettingKey(jid);
+  const saved =
+    neroModelSettings[settingKey] ??
+    neroModelSettings[jid] ??
+    '';
 
   // Older installs stored every NVIDIA_NIM_MODEL choice under the
   // nvidia_nemotron key. If the actual env model now points at a
@@ -553,38 +561,61 @@ function getNeroSelectedModel(jid) {
   const configuredNvidiaKey =
     getConfiguredNvidiaModelKey();
 
-  if (
-    saved &&
-    saved.startsWith('nvidia_') &&
-    configuredNvidiaKey &&
-    saved === 'nvidia_nemotron'
-  ) {
-    return configuredNvidiaKey;
+  const resolveSaved = value => {
+    if (
+      value &&
+      value.startsWith('nvidia_') &&
+      configuredNvidiaKey &&
+      value === 'nvidia_nemotron'
+    ) {
+      return configuredNvidiaKey;
+    }
+
+    if (
+      value &&
+      NERO_MODEL_CATALOG.some(
+        model => model.key === value
+      )
+    ) {
+      return value;
+    }
+
+    return null;
+  };
+
+  const resolved = resolveSaved(saved);
+  if (resolved) {
+    return resolved;
   }
 
-  if (
-    saved &&
-    NERO_MODEL_CATALOG.some(
-      model => model.key === saved
-    )
-  ) {
-    return saved;
-  }
+  // If WhatsApp/Baileys changes the exact chat JID shape, retain the
+  // Master's last explicit model choice instead of silently reverting
+  // to Gemini/automatic fallback.
+  const globalDefault =
+    resolveSaved(
+      neroModelSettings.__default
+    );
 
-  return 'auto';
+  return globalDefault || 'auto';
 }
 
 function setNeroSelectedModel(
   jid,
   key
 ) {
+  const settingKey =
+    getNeroModelSettingKey(jid);
+
   if (
     !key ||
     key === 'auto'
   ) {
-    delete neroModelSettings[jid];
+    neroModelSettings[settingKey] = 'auto';
   } else {
-    neroModelSettings[jid] = key;
+    neroModelSettings[settingKey] = key;
+    // Keep the last explicit Master selection as a recovery default if
+    // WhatsApp presents this same chat under a different normalized JID.
+    neroModelSettings.__default = key;
   }
 
   saveNeroModelSettings();
