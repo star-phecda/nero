@@ -4169,7 +4169,7 @@ function neroDetectWebSearchIntent(
     /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?search\s+(?:the\s+)?(?:web|internet)\b\s*(?:for\s*)?(.*)$/i,
     /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?web\s+search\b\s*(?:for\s*)?(.*)$/i,
     /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?search\s+online\b\s*(?:for\s*)?(.*)$/i,
-    /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?(?:look\s+(?:this|it)\s+up(?:\s+online)?|check\s+the\s+internet|find\s+(?:this|it|that)\s+out\s+online)\b\s*(.*)$/i
+    /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?(?:look\s+(?:this|it)\s+up(?:\s+online)?|check\s+the\s+internet|find\s+(?:(?:this|it|that)\s+)?out\s+online)\b\s*(.*)$/i
   ];
 
   for (const pattern of explicitPatterns) {
@@ -4186,7 +4186,7 @@ function neroDetectWebSearchIntent(
     query =
       query
         .replace(
-          /^(?:and\s+)?(?:find\s+out|check\s+online|look\s+it\s+up|search\s+for)\s*/i,
+          /^(?:(?:and|to)\s+)?(?:find\s+out|check\s+online|look\s+it\s+up|search\s+for)\s*/i,
           ''
         )
         .trim();
