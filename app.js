@@ -285,6 +285,20 @@ const NERO_MODEL_CATALOG = [
     label: 'Mistral Small 4',
     model: process.env.MISTRAL_MODEL || 'mistral-small-2603',
     media: '🖼️ images • 🏷️ stickers'
+  },
+  {
+    key: 'vercel_gpt61_sol',
+    provider: 'Vercel AI Gateway',
+    label: 'GPT-6.1 Sol',
+    model: process.env.VERCEL_GPT61_SOL_MODEL || 'openai/gpt-6.1-sol',
+    media: '🖼️ images • 🏷️ stickers'
+  },
+  {
+    key: 'vercel_gpt6_luna',
+    provider: 'Vercel AI Gateway',
+    label: 'GPT-6 Luna',
+    model: process.env.VERCEL_GPT6_LUNA_MODEL || 'openai/gpt-6-luna',
+    media: '🖼️ images • 🏷️ stickers'
   }
 ];
 
@@ -535,6 +549,45 @@ function getNeroSelectedModel(jid) {
   // nvidia_nemotron key. If the actual env model now points at a
   // different known NVIDIA catalog entry, follow the configured model
   // instead of falsely reporting it as Nemotron.
+  const vercelModels = [
+    {
+      name: 'GPT-6.1 Sol',
+      model: getNeroModelInfo('vercel_gpt61_sol').model
+    },
+    {
+      name: 'GPT-6 Luna',
+      model: getNeroModelInfo('vercel_gpt6_luna').model
+    }
+  ];
+
+  for (const candidate of vercelModels) {
+    if (media && media.kind === 'video') continue;
+
+    try {
+      console.log(
+        '[VERCEL AI GATEWAY] Trying ' +
+        candidate.name +
+        ' (' +
+        candidate.model +
+        ')'
+      );
+
+      return await askVercelAIGateway(
+        prompt,
+        started,
+        candidate.model,
+        media
+      );
+    } catch (error) {
+      console.error(
+        '[VERCEL AI GATEWAY] ' +
+        candidate.name +
+        ' failed: ' +
+        String(error?.message || error)
+      );
+    }
+  }
+
   const configuredNvidiaKey =
     getConfiguredNvidiaModelKey();
 
@@ -655,6 +708,13 @@ function neroQuotaText(key) {
 
   if (key === 'mistral_small') {
     return 'Account limits • check Mistral Studio';
+  }
+
+  if (
+    key === 'vercel_gpt61_sol' ||
+    key === 'vercel_gpt6_luna'
+  ) {
+    return 'Vercel AI Gateway • account/credit limits';
   }
 
   if (
@@ -1312,6 +1372,22 @@ async function askNeroFamilyFeudLLM(prompt, started, jid) {
     {
       name: 'NVIDIA NIM',
       run: () => askNvidiaNim(prompt, started)
+    },
+    {
+      name: 'Vercel AI Gateway GPT-6.1 Sol',
+      run: () => askVercelAIGateway(
+        prompt,
+        started,
+        getNeroModelInfo('vercel_gpt61_sol').model
+      )
+    },
+    {
+      name: 'Vercel AI Gateway GPT-6 Luna',
+      run: () => askVercelAIGateway(
+        prompt,
+        started,
+        getNeroModelInfo('vercel_gpt6_luna').model
+      )
     },
     {
       name: 'Cloudflare',
@@ -5220,6 +5296,137 @@ async function askCloudflare(
   return reply;
 }
 
+async function askVercelAIGateway(
+  prompt,
+  started = Date.now(),
+  modelOverride = null,
+  media = null
+) {
+  const apiKey = process.env.AI_GATEWAY_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      'AI_GATEWAY_API_KEY is missing. Vercel AI Gateway is unavailable.'
+    );
+  }
+
+  const model =
+    modelOverride ||
+    process.env.VERCEL_GPT61_SOL_MODEL ||
+    'openai/gpt-6.1-sol';
+
+  if (media && media.kind === 'video') {
+    throw new Error(
+      'Vercel AI Gateway GPT models do not support video input in Nero.'
+    );
+  }
+
+  const content = media
+    ? [
+        {
+          type: 'text',
+          text:
+            media.kind === 'sticker'
+              ? prompt +
+                '\n[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
+              : prompt
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url:
+              'data:' +
+              (media.mimeType || 'image/jpeg') +
+              ';base64,' +
+              Buffer.from(media.buffer).toString('base64')
+          }
+        }
+      ]
+    : prompt;
+
+  const isLuna = /gpt-6-luna/i.test(model);
+  const reasoningEffort = isLuna
+    ? String(process.env.VERCEL_GPT6_LUNA_REASONING_EFFORT || 'none')
+    : String(process.env.VERCEL_GPT61_SOL_REASONING_EFFORT || 'low');
+
+  const body = {
+    model,
+    messages: [
+      {
+        role: 'user',
+        content
+      }
+    ],
+    temperature: 0.7,
+    max_tokens: Number(
+      process.env.VERCEL_AI_GATEWAY_MAX_TOKENS || 1024
+    ),
+    reasoning_effort: reasoningEffort,
+    stream: false
+  };
+
+  const response = await fetch(
+    'https://ai-gateway.vercel.sh/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    }
+  );
+
+  const raw = await response.text();
+
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {}
+
+  if (!response.ok) {
+    const details =
+      data?.error?.message ||
+      data?.message ||
+      raw ||
+      '';
+
+    const error = new Error(
+      'Vercel AI Gateway request failed (' +
+      response.status +
+      ')' +
+      (details ? ': ' + details : '.')
+    );
+
+    error.status = response.status;
+    error.vercelModel = model;
+    throw error;
+  }
+
+  const reply =
+    data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error(
+      'Vercel AI Gateway returned no text.'
+    );
+  }
+
+  console.log(
+    '[VERCEL AI GATEWAY] ' +
+    model +
+    ' [' +
+    reasoningEffort +
+    ']' +
+    (media ? ' [' + media.kind + ']' : '') +
+    ' — ' +
+    (Date.now() - started) +
+    ' ms'
+  );
+
+  return reply;
+}
+
 async function askGeminiDirect(
   prompt,
   model,
@@ -5392,6 +5599,15 @@ async function askNeroSelectedModel(
 
     case 'mistral_small':
       return await askMistral(prompt, started, selected.model, media);
+
+    case 'vercel_gpt61_sol':
+    case 'vercel_gpt6_luna':
+      return await askVercelAIGateway(
+        prompt,
+        started,
+        selected.model,
+        media
+      );
 
     default:
       throw new Error('Unknown selected model: ' + key);
