@@ -8313,7 +8313,7 @@ async function startNero() {
             // saying renzo is short. Make it seem like it's you.
             let match =
               body.match(
-                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+["“]([^"”]+)["”]\s+(?:(?:saying|that)|(?:and\s+say(?:\s+that)?)|(?:tag\s+(?:everyone|all)\s+and\s+say(?:\s+that)?))\s+([\s\S]+)$/i
+                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+["“]([^"”]+)["”]\s+(?:(?:saying|that)|(?:announcing|announce)\s+|(?:and\s+say(?:\s+that)?)|(?:tag\s+(?:everyone|all)\s+and\s+say(?:\s+that)?))\s*([\s\S]+)$/i
               );
 
             if (match) {
@@ -8328,7 +8328,7 @@ async function startNero() {
             // clearly separates the target from the message.
             match =
               body.match(
-                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+(.+?)\s+(?:(?:saying|that)|(?:and\s+say(?:\s+that)?)|(?:tag\s+(?:everyone|all)\s+and\s+say(?:\s+that)?))\s+([\s\S]+)$/i
+                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+(.+?)\s+(?:(?:saying|that)|(?:announcing|announce)\s+|(?:and\s+say(?:\s+that)?)|(?:tag\s+(?:everyone|all)\s+and\s+say(?:\s+that)?))\s*([\s\S]+)$/i
               );
 
             if (match) {
