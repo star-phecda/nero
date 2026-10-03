@@ -5724,6 +5724,415 @@ async function sendNeroModelMenu(
   );
 }
 
+
+
+// NERO DETERMINISTIC INTELLIGENCE
+// Requests with exact, machine-checkable answers should not spend an LLM call.
+// This keeps Nero accurate on counting, simple arithmetic, and local date/time.
+const NERO_TIME_ZONE =
+  process.env.NERO_TIME_ZONE || 'Africa/Lagos';
+
+function neroFormatDeterministicNumber(value) {
+  if (!Number.isFinite(value)) return null;
+
+  if (Object.is(value, -0)) {
+    return '0';
+  }
+
+  if (
+    Number.isInteger(value) &&
+    Math.abs(value) <= Number.MAX_SAFE_INTEGER
+  ) {
+    return value.toLocaleString('en-US');
+  }
+
+  return String(Number(value.toFixed(12)));
+}
+
+function neroPreviousConversationText(jid) {
+  const history = conversations.get(jid) || [];
+
+  for (let index = history.length - 1; index >= 0; index--) {
+    const item = history[index];
+
+    if (!item) continue;
+    if (item.sender === BOT_NAME) continue;
+
+    const text = String(item.text || '').trim();
+
+    if (text) {
+      return text;
+    }
+  }
+
+  return '';
+}
+
+function neroExtractQuotedText(text) {
+  const source = String(text || '');
+
+  const quoteMatch = source.match(
+    /(?:["“‘'])([\\s\\S]*?)(?:["”’'])/
+  );
+
+  if (quoteMatch) {
+    return quoteMatch[1];
+  }
+
+  return '';
+}
+
+function neroSimpleMath(expression) {
+  const source = String(expression || '').trim();
+
+  if (!source || source.length > 120) {
+    return null;
+  }
+
+  if (
+    !/^[0-9+\\-*/%.()\\s]+$/.test(source) ||
+    !/[0-9]/.test(source)
+  ) {
+    return null;
+  }
+
+  const tokens = source.match(
+    /(?:\\d+(?:\\.\\d*)?|\\.\\d+)|[()+\\-*/%]/g
+  );
+
+  if (!tokens) {
+    return null;
+  }
+
+  const compactSource = source.replace(/\\s+/g, '');
+  const compactTokens = tokens.join('');
+
+  if (compactSource !== compactTokens) {
+    return null;
+  }
+
+  let position = 0;
+
+  function peek() {
+    return tokens[position];
+  }
+
+  function consume() {
+    return tokens[position++];
+  }
+
+  function parseExpression() {
+    let value = parseTerm();
+
+    while (peek() === '+' || peek() === '-') {
+      const operator = consume();
+      const right = parseTerm();
+
+      if (right == null) return null;
+
+      value =
+        operator === '+'
+          ? value + right
+          : value - right;
+    }
+
+    return value;
+  }
+
+  function parseTerm() {
+    let value = parseUnary();
+
+    while (
+      peek() === '*' ||
+      peek() === '/' ||
+      peek() === '%'
+    ) {
+      const operator = consume();
+      const right = parseUnary();
+
+      if (right == null) return null;
+
+      if (
+        (operator === '/' || operator === '%') &&
+        right === 0
+      ) {
+        return null;
+      }
+
+      value =
+        operator === '*'
+          ? value * right
+          : operator === '/'
+            ? value / right
+            : value % right;
+    }
+
+    return value;
+  }
+
+  function parseUnary() {
+    if (peek() === '+') {
+      consume();
+      return parseUnary();
+    }
+
+    if (peek() === '-') {
+      consume();
+      const value = parseUnary();
+
+      return value == null ? null : -value;
+    }
+
+    return parsePrimary();
+  }
+
+  function parsePrimary() {
+    const token = peek();
+
+    if (token === '(') {
+      consume();
+
+      const value = parseExpression();
+
+      if (peek() !== ')') {
+        return null;
+      }
+
+      consume();
+      return value;
+    }
+
+    if (
+      token &&
+      /^\\d+(?:\\.\\d*)?$|^\\.\\d+$/.test(token)
+    ) {
+      consume();
+      return Number(token);
+    }
+
+    return null;
+  }
+
+  const result = parseExpression();
+
+  if (
+    result == null ||
+    position !== tokens.length ||
+    !Number.isFinite(result)
+  ) {
+    return null;
+  }
+
+  return result;
+}
+
+function neroDeterministicCountReply(
+  jid,
+  text
+) {
+  const original = String(text || '').trim();
+  const lower = original.toLowerCase();
+
+  const countMatch = lower.match(
+    /^how many\\s+(dots?|periods?|full\\s+stops?|commas?|question\\s+marks?|exclamation\\s+(?:marks?|points?)|colons?|semicolons?|dashes?|hyphens?|underscores?|asterisks?|hash(?:es)?|hashtags?|spaces?|letters?|digits?|numbers?|characters?|words?)(?:\\s+.*)?[?!\\.]*$/i
+  );
+
+  if (!countMatch) {
+    return null;
+  }
+
+  const target = countMatch[1]
+    .toLowerCase()
+    .replace(/\\s+/g, ' ');
+
+  const targetInfo = (
+    {
+      dot: { type: 'char', value: '.' },
+      dots: { type: 'char', value: '.' },
+      period: { type: 'char', value: '.' },
+      periods: { type: 'char', value: '.' },
+      'full stop': { type: 'char', value: '.' },
+      'full stops': { type: 'char', value: '.' },
+      comma: { type: 'char', value: ',' },
+      commas: { type: 'char', value: ',' },
+      'question mark': { type: 'char', value: '?' },
+      'question marks': { type: 'char', value: '?' },
+      'exclamation mark': { type: 'char', value: '!' },
+      'exclamation marks': { type: 'char', value: '!' },
+      'exclamation point': { type: 'char', value: '!' },
+      'exclamation points': { type: 'char', value: '!' },
+      colon: { type: 'char', value: ':' },
+      colons: { type: 'char', value: ':' },
+      semicolon: { type: 'char', value: ';' },
+      semicolons: { type: 'char', value: ';' },
+      dash: { type: 'char', value: '-' },
+      dashes: { type: 'char', value: '-' },
+      hyphen: { type: 'char', value: '-' },
+      hyphens: { type: 'char', value: '-' },
+      underscore: { type: 'char', value: '_' },
+      underscores: { type: 'char', value: '_' },
+      asterisk: { type: 'char', value: '*' },
+      asterisks: { type: 'char', value: '*' },
+      hash: { type: 'char', value: '#' },
+      hashes: { type: 'char', value: '#' },
+      hashtag: { type: 'char', value: '#' },
+      hashtags: { type: 'char', value: '#' },
+      space: { type: 'space' },
+      spaces: { type: 'space' },
+      letter: { type: 'letter' },
+      letters: { type: 'letter' },
+      digit: { type: 'digit' },
+      digits: { type: 'digit' },
+      number: { type: 'digit' },
+      numbers: { type: 'digit' },
+      character: { type: 'character' },
+      characters: { type: 'character' },
+      word: { type: 'word' },
+      words: { type: 'word' }
+    }
+  )[target];
+
+  if (!targetInfo) {
+    return null;
+  }
+
+  let referenceText =
+    neroExtractQuotedText(original);
+
+  if (!referenceText) {
+    const previous = neroPreviousConversationText(jid);
+
+    // Prefer a previous message that is visually a single repeated
+    // character/string when the user asks about punctuation.
+    if (
+      previous &&
+      (
+        targetInfo.type === 'char' ||
+        targetInfo.type === 'space'
+      ) &&
+      /^[\\s.!,?;:_*#\\-]+$/.test(previous)
+    ) {
+      referenceText = previous;
+    }
+  }
+
+  if (!referenceText) {
+    // Also support "how many dots are here: .............".
+    const tailMatch = original.match(
+      /[:：]\\s*([.!,?;:_*#\\-\\s]{2,})$/
+    );
+
+    if (tailMatch) {
+      referenceText = tailMatch[1];
+    }
+  }
+
+  if (!referenceText) {
+    return null;
+  }
+
+  let count = 0;
+
+  if (targetInfo.type === 'char') {
+    count = Array.from(referenceText).filter(
+      character => character === targetInfo.value
+    ).length;
+  } else if (targetInfo.type === 'space') {
+    count = (referenceText.match(/\\s/g) || []).length;
+  } else if (targetInfo.type === 'letter') {
+    count = (referenceText.match(/[\\p{L}]/gu) || []).length;
+  } else if (targetInfo.type === 'digit') {
+    count = (referenceText.match(/\\d/g) || []).length;
+  } else if (targetInfo.type === 'character') {
+    count = Array.from(referenceText).length;
+  } else if (targetInfo.type === 'word') {
+    count = referenceText.trim()
+      ? referenceText.trim().split(/\\s+/).length
+      : 0;
+  }
+
+  return String(count) + '.';
+}
+
+function neroDeterministicReply(
+  jid,
+  text
+) {
+  const original = String(text || '').trim();
+  const lower = original.toLowerCase();
+
+  if (!original) {
+    return null;
+  }
+
+  const countReply =
+    neroDeterministicCountReply(jid, original);
+
+  if (countReply) {
+    return countReply;
+  }
+
+  if (
+    /^(?:what(?:'s| is)\\s+)?(?:today(?:'s)?\\s+date|the\\s+date\\s+today)|^what\\s+date\\s+is\\s+it\\??$/i
+      .test(lower)
+  ) {
+    return new Intl.DateTimeFormat(
+      'en-GB',
+      {
+        timeZone: NERO_TIME_ZONE,
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      }
+    ).format(new Date());
+  }
+
+  if (
+    /^(?:what(?:'s| is)\\s+)?(?:the\\s+)?time(?:\\s+is\\s+it)?\\??$/i
+      .test(lower)
+  ) {
+    return new Intl.DateTimeFormat(
+      'en-NG',
+      {
+        timeZone: NERO_TIME_ZONE,
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      }
+    ).format(new Date());
+  }
+
+  let mathExpression = '';
+
+  const mathMatch = original.match(
+    /^(?:what(?:'s| is)|calculate|compute|solve)\\s+(.+?)\\??$/i
+  );
+
+  if (mathMatch) {
+    mathExpression = mathMatch[1].trim();
+  } else if (
+    /^[\\d\\s()+\\-*/%.]+=?\\??$/.test(original)
+  ) {
+    mathExpression = original
+      .replace(/=+$/, '')
+      .replace(/\\?+$/, '')
+      .trim();
+  }
+
+  if (mathExpression) {
+    const result = neroSimpleMath(mathExpression);
+    const formatted = neroFormatDeterministicNumber(result);
+
+    if (formatted != null) {
+      return formatted + '.';
+    }
+  }
+
+  return null;
+}
+
 async function askGemini(
   sock,
   jid,
@@ -7582,6 +7991,47 @@ const masterMentioned = mentionedJids.some(jid =>
 
         // NERO NATURAL CALL RESPONSES
         // Simple calls do not need an LLM request.
+        // NERO DETERMINISTIC INTELLIGENCE
+        // Use code for exact answers instead of asking an LLM to guess.
+        if (shouldRespond) {
+          const deterministicReply =
+            neroDeterministicReply(jid, text);
+
+          if (deterministicReply !== null) {
+            const sentMessage =
+              await sock.sendMessage(
+                jid,
+                { text: deterministicReply },
+                { quoted: message }
+              );
+
+            if (sentMessage?.key?.id) {
+              botSentMessageIds.add(
+                sentMessage.key.id
+              );
+
+              setTimeout(() => {
+                botSentMessageIds.delete(
+                  sentMessage.key.id
+                );
+              }, 5 * 60 * 1000);
+            }
+
+            addToHistory(
+              jid,
+              BOT_NAME,
+              deterministicReply
+            );
+
+            rememberNeroBotOutbound(
+              jid,
+              deterministicReply
+            );
+
+            continue;
+          }
+        }
+
 
         const cleanMessageText = (text || '').trim().toLowerCase();
 
