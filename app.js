@@ -300,48 +300,7 @@ const NERO_MODEL_CATALOG = [
     model: process.env.APMIX_SPACE_BUNNY_MODEL || 'space-bunny-free',
     media: '📝 text only'
   },
-  {
-    key: 'vercel_gpt61_sol',
-    provider: 'Vercel AI Gateway',
-    label: 'GPT-6.1 Sol',
-    model: process.env.VERCEL_GPT61_SOL_MODEL || 'openai/gpt-6.1-sol',
-    media: '🖼️ images • 🏷️ stickers'
-  },
-  {
-    key: 'vercel_gpt6_luna',
-    provider: 'Vercel AI Gateway',
-    label: 'GPT-6 Luna',
-    model: process.env.VERCEL_GPT6_LUNA_MODEL || 'openai/gpt-6-luna',
-    media: '🖼️ images • 🏷️ stickers'
-  },
-  {
-    key: 'vercel_claude_opus55',
-    provider: 'Vercel AI Gateway',
-    label: 'Claude Opus 5.5',
-    model: process.env.VERCEL_CLAUDE_OPUS55_MODEL || 'anthropic/claude-opus-5.5',
-    media: '🖼️ images • 🏷️ stickers'
-  },
-  {
-    key: 'vercel_claude_sonnet55',
-    provider: 'Vercel AI Gateway',
-    label: 'Claude Sonnet 5.5',
-    model: process.env.VERCEL_CLAUDE_SONNET55_MODEL || 'anthropic/claude-sonnet-5.5',
-    media: '🖼️ images • 🏷️ stickers'
-  },
-  {
-    key: 'vercel_grok47',
-    provider: 'Vercel AI Gateway',
-    label: 'Grok 4.7',
-    model: process.env.VERCEL_GROK47_MODEL || 'spacexai/grok-4.7',
-    media: '🖼️ images • 🏷️ stickers'
-  },
-  {
-    key: 'vercel_grok46',
-    provider: 'Vercel AI Gateway',
-    label: 'Grok 4.6',
-    model: process.env.VERCEL_GROK46_MODEL || 'spacexai/grok-4.6',
-    media: '🖼️ images • 🏷️ stickers'
-  }
+
 ];
 
 
@@ -718,17 +677,6 @@ function neroQuotaText(key) {
     key === 'apmix_space_bunny'
   ) {
     return 'APMIX • account allowance';
-  }
-
-  if (
-    key === 'vercel_gpt61_sol' ||
-    key === 'vercel_gpt6_luna' ||
-    key === 'vercel_claude_opus55' ||
-    key === 'vercel_claude_sonnet55' ||
-    key === 'vercel_grok47' ||
-    key === 'vercel_grok46'
-  ) {
-    return 'Vercel AI Gateway • account/credit limits';
   }
 
   if (
@@ -1386,54 +1334,6 @@ async function askNeroFamilyFeudLLM(prompt, started, jid) {
     {
       name: 'NVIDIA NIM',
       run: () => askNvidiaNim(prompt, started)
-    },
-    {
-      name: 'Vercel AI Gateway GPT-6.1 Sol',
-      run: () => askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_gpt61_sol').model
-      )
-    },
-    {
-      name: 'Vercel AI Gateway GPT-6 Luna',
-      run: () => askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_gpt6_luna').model
-      )
-    },
-    {
-      name: 'Vercel AI Gateway Claude Opus 5.5',
-      run: () => askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_claude_opus55').model
-      )
-    },
-    {
-      name: 'Vercel AI Gateway Claude Sonnet 5.5',
-      run: () => askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_claude_sonnet55').model
-      )
-    },
-    {
-      name: 'Vercel AI Gateway Grok 4.7',
-      run: () => askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_grok47').model
-      )
-    },
-    {
-      name: 'Vercel AI Gateway Grok 4.6',
-      run: () => askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_grok46').model
-      )
     },
     {
       name: 'Cloudflare',
@@ -5464,142 +5364,6 @@ async function askApmix(
   return reply;
 }
 
-async function askVercelAIGateway(
-  prompt,
-  started = Date.now(),
-  modelOverride = null,
-  media = null
-) {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-
-  if (!apiKey) {
-    throw new Error(
-      'AI_GATEWAY_API_KEY is missing. Vercel AI Gateway is unavailable.'
-    );
-  }
-
-  const model =
-    modelOverride ||
-    process.env.VERCEL_GPT61_SOL_MODEL ||
-    'openai/gpt-6.1-sol';
-
-  if (media && media.kind === 'video') {
-    throw new Error(
-      'Vercel AI Gateway models do not support video input in Nero.'
-    );
-  }
-
-  const content = media
-    ? [
-        {
-          type: 'text',
-          text:
-            media.kind === 'sticker'
-              ? prompt +
-                '\n[Visual input is a WhatsApp sticker. Inspect the sticker image itself.]'
-              : prompt
-        },
-        {
-          type: 'image_url',
-          image_url: {
-            url:
-              'data:' +
-              (media.mimeType || 'image/jpeg') +
-              ';base64,' +
-              Buffer.from(media.buffer).toString('base64')
-          }
-        }
-      ]
-    : prompt;
-
-  const isLuna = /gpt-6-luna/i.test(model);
-  const isClaude = /^anthropic\/claude-/i.test(model);
-  const reasoningEffort = isClaude
-    ? null
-    : isLuna
-      ? String(process.env.VERCEL_GPT6_LUNA_REASONING_EFFORT || 'none')
-      : /^spacexai\/grok-/i.test(model)
-        ? String(process.env.VERCEL_GROK_REASONING_EFFORT || 'low')
-        : String(process.env.VERCEL_GPT61_SOL_REASONING_EFFORT || 'low');
-
-  const body = {
-    model,
-    messages: [
-      {
-        role: 'user',
-        content
-      }
-    ],
-    temperature: 0.7,
-    max_tokens: Number(
-      process.env.VERCEL_AI_GATEWAY_MAX_TOKENS || 1024
-    ),
-    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-    stream: false
-  };
-
-  const response = await fetch(
-    'https://ai-gateway.vercel.sh/v1/chat/completions',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    }
-  );
-
-  const raw = await response.text();
-
-  let data = {};
-  try {
-    data = raw ? JSON.parse(raw) : {};
-  } catch {}
-
-  if (!response.ok) {
-    const details =
-      data?.error?.message ||
-      data?.message ||
-      raw ||
-      '';
-
-    const error = new Error(
-      'Vercel AI Gateway request failed (' +
-      response.status +
-      ')' +
-      (details ? ': ' + details : '.')
-    );
-
-    error.status = response.status;
-    error.vercelModel = model;
-    throw error;
-  }
-
-  const reply =
-    data?.choices?.[0]?.message?.content?.trim();
-
-  if (!reply) {
-    throw new Error(
-      'Vercel AI Gateway returned no text.'
-    );
-  }
-
-  console.log(
-    '[VERCEL AI GATEWAY] ' +
-    model +
-    ' [' +
-    (reasoningEffort || 'adaptive') +
-    ']' +
-    (media ? ' [' + media.kind + ']' : '') +
-    ' — ' +
-    (Date.now() - started) +
-    ' ms'
-  );
-
-  return reply;
-}
-
 async function askGeminiDirect(
   prompt,
   model,
@@ -5776,19 +5540,6 @@ async function askNeroSelectedModel(
     case 'apmix_claude_sonnet46':
     case 'apmix_space_bunny':
       return await askApmix(
-        prompt,
-        started,
-        selected.model,
-        media
-      );
-
-    case 'vercel_gpt61_sol':
-    case 'vercel_gpt6_luna':
-    case 'vercel_claude_opus55':
-    case 'vercel_claude_sonnet55':
-    case 'vercel_grok47':
-    case 'vercel_grok46':
-      return await askVercelAIGateway(
         prompt,
         started,
         selected.model,
@@ -6190,56 +5941,6 @@ async function askGemini(
     } catch (error) {
       console.error(
         '[NVIDIA NIM] ' +
-        candidate.label +
-        ' failed: ' +
-        String(error?.message || error)
-      );
-    }
-  }
-
-  // Vercel AI Gateway fallback: GPT, Claude, and Grok.
-  // This path supports image/sticker input but not video.
-  const automaticVercelKeys = [
-    'vercel_gpt61_sol',
-    'vercel_gpt6_luna',
-    'vercel_claude_opus55',
-    'vercel_claude_sonnet55',
-    'vercel_grok47',
-    'vercel_grok46'
-  ];
-
-  const vercelKeys = media
-    ? automaticVercelKeys.filter(
-        key =>
-          neroModelSupportsMedia(
-            key,
-            media.kind
-          )
-      )
-    : automaticVercelKeys;
-
-  for (const key of vercelKeys) {
-    const candidate = getNeroModelInfo(key);
-
-    try {
-      console.log(
-        '[VERCEL AI GATEWAY] Trying ' +
-        candidate.label +
-        ' (' +
-        candidate.model +
-        ')' +
-        (media ? ' [' + media.kind + ']' : '')
-      );
-
-      return await askVercelAIGateway(
-        prompt,
-        started,
-        candidate.model,
-        media
-      );
-    } catch (error) {
-      console.error(
-        '[VERCEL AI GATEWAY] ' +
         candidate.label +
         ' failed: ' +
         String(error?.message || error)
@@ -6863,48 +6564,6 @@ async function askNeroRecap(
       askNvidiaNim(
         prompt,
         started
-      ),
-
-    () =>
-      askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_gpt61_sol').model
-      ),
-
-    () =>
-      askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_gpt6_luna').model
-      ),
-
-    () =>
-      askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_claude_opus55').model
-      ),
-
-    () =>
-      askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_claude_sonnet55').model
-      ),
-
-    () =>
-      askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_grok47').model
-      ),
-
-    () =>
-      askVercelAIGateway(
-        prompt,
-        started,
-        getNeroModelInfo('vercel_grok46').model
       ),
 
     () =>
