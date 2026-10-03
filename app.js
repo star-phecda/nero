@@ -8328,7 +8328,7 @@ async function startNero() {
             if (!original) return null;
 
             const requestsSearch =
-              /(?:web\\s+search|search\\s+(?:the\\s+)?web|search\\s+online|look\\s+(?:it|this)\\s+up|check\\s+(?:the\\s+)?internet|verify(?:\\s+this)?|if\\s+you\\s+(?:do not|don't)\\s+know|if\\s+unsure|if\\s+you\\s+are\\s+not\\s+sure)/i.test(
+              /(?:web\s+search|search\s+(?:the\s+)?web|search\s+online|look\s+(?:it|this)\s+up|check\s+(?:the\s+)?internet|verify(?:\s+this)?|if\s+you\s+(?:do not|don't)\s+know|if\s+unsure|if\s+you\s+are\s+not\s+sure)/i.test(
                 original
               );
 
@@ -8344,19 +8344,19 @@ async function startNero() {
             if (!query && requestsSearch) {
               query = original
                 .replace(
-                  /[,;]?\\s*(?:and\\s+)?(?:make|do)\\s+(?:a\\s+)?web\\s+search.*$/i,
+                  /[,;]?\s*(?:and\s+)?(?:make|do)\s+(?:a\s+)?web\s+search.*$/i,
                   ''
                 )
                 .replace(
-                  /[,;]?\\s*(?:and\\s+)?(?:search\\s+(?:the\\s+)?web|search\\s+online|look\\s+(?:it|this)\\s+up|check\\s+(?:the\\s+)?internet).*$/i,
+                  /[,;]?\s*(?:and\s+)?(?:search\s+(?:the\s+)?web|search\s+online|look\s+(?:it|this)\s+up|check\s+(?:the\s+)?internet).*$/i,
                   ''
                 )
                 .replace(
-                  /^(?:please\\s+)?(?:announce|announcing|tell|say|post|send|write)\\s+/i,
+                  /^(?:please\s+)?(?:announce|announcing|tell|say|post|send|write)\s+/i,
                   ''
                 )
                 .replace(
-                  /^.*?\\b(?:announce|announcing|tell|say|post|send|write)\\s+/i,
+                  /^.*?\b(?:announce|announcing|tell|say|post|send|write)\s+/i,
                   ''
                 )
                 .trim();
