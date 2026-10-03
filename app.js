@@ -292,15 +292,7 @@ const NERO_MODEL_CATALOG = [
     label: 'Claude Sonnet 4.6 Free',
     model: process.env.APMIX_CLAUDE_SONNET46_MODEL || 'claude-sonnet-4-6-free',
     media: '📝 text only'
-  },
-  {
-    key: 'apmix_space_bunny',
-    provider: 'APMIX',
-    label: 'Space Bunny Free',
-    model: process.env.APMIX_SPACE_BUNNY_MODEL || 'space-bunny-free',
-    media: '📝 text only'
-  },
-
+  }
 ];
 
 
@@ -703,10 +695,7 @@ function neroQuotaText(key) {
     return 'Account limits • check Mistral Studio';
   }
 
-  if (
-    key === 'apmix_claude_sonnet46' ||
-    key === 'apmix_space_bunny'
-  ) {
+  if (key === 'apmix_claude_sonnet46') {
     return 'APMIX • account allowance';
   }
 
@@ -5569,7 +5558,6 @@ async function askNeroSelectedModel(
       return await askMistral(prompt, started, selected.model, media);
 
     case 'apmix_claude_sonnet46':
-    case 'apmix_space_bunny':
       return await askApmix(
         prompt,
         started,
@@ -5866,8 +5854,7 @@ async function askGemini(
   }
 
   const automaticApmixKeys = [
-    'apmix_claude_sonnet46',
-    'apmix_space_bunny'
+    'apmix_claude_sonnet46'
   ];
 
   const apmixKeys = media
