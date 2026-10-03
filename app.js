@@ -6564,7 +6564,7 @@ async function askGemini(
       started,
       null,
       media
-    )));
+    ));
   } catch (error) {
     console.error('[GROQ] Failed: ' + String(error?.message || error));
     if (
@@ -6720,7 +6720,7 @@ async function askGemini(
       started,
       getNeroModelInfo('cloudflare_gemma').model,
       media
-    )));
+    ));
   } catch (error) {
     console.error(
       '[CLOUDFLARE GEMMA] Failed: ' +
