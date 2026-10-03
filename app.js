@@ -5773,7 +5773,7 @@ function neroExtractQuotedText(text) {
   const source = String(text || '');
 
   const quoteMatch = source.match(
-    /(?:["“‘'])([\\s\\S]*?)(?:["”’'])/
+    /(?:["“‘'])([\s\S]*?)(?:["”’'])/
   );
 
   if (quoteMatch) {
@@ -5791,21 +5791,21 @@ function neroSimpleMath(expression) {
   }
 
   if (
-    !/^[0-9+\\-*/%.()\\s]+$/.test(source) ||
+    !/^[0-9+\-*/%.()\s]+$/.test(source) ||
     !/[0-9]/.test(source)
   ) {
     return null;
   }
 
   const tokens = source.match(
-    /(?:\\d+(?:\\.\\d*)?|\\.\\d+)|[()+\\-*/%]/g
+    /(?:\d+(?:\.\d*)?|\.\d+)|[()+\-*/%]/g
   );
 
   if (!tokens) {
     return null;
   }
 
-  const compactSource = source.replace(/\\s+/g, '');
+  const compactSource = source.replace(/\s+/g, '');
   const compactTokens = tokens.join('');
 
   if (compactSource !== compactTokens) {
@@ -5905,7 +5905,7 @@ function neroSimpleMath(expression) {
 
     if (
       token &&
-      /^\\d+(?:\\.\\d*)?$|^\\.\\d+$/.test(token)
+      /^\d+(?:\.\d*)?$|^\.\d+$/.test(token)
     ) {
       consume();
       return Number(token);
@@ -5935,7 +5935,7 @@ function neroDeterministicCountReply(
   const lower = original.toLowerCase();
 
   const countMatch = lower.match(
-    /^how many\\s+(dots?|periods?|full\\s+stops?|commas?|question\\s+marks?|exclamation\\s+(?:marks?|points?)|colons?|semicolons?|dashes?|hyphens?|underscores?|asterisks?|hash(?:es)?|hashtags?|spaces?|letters?|digits?|numbers?|characters?|words?)(?:\\s+.*)?[?!\\.]*$/i
+    /^how many\s+(dots?|periods?|full\s+stops?|commas?|question\s+marks?|exclamation\s+(?:marks?|points?)|colons?|semicolons?|dashes?|hyphens?|underscores?|asterisks?|hash(?:es)?|hashtags?|spaces?|letters?|digits?|numbers?|characters?|words?)(?:\s+.*)?[?!\.]*$/i
   );
 
   if (!countMatch) {
@@ -5944,7 +5944,7 @@ function neroDeterministicCountReply(
 
   const target = countMatch[1]
     .toLowerCase()
-    .replace(/\\s+/g, ' ');
+    .replace(/\s+/g, ' ');
 
   const targetInfo = (
     {
@@ -6011,7 +6011,7 @@ function neroDeterministicCountReply(
         targetInfo.type === 'char' ||
         targetInfo.type === 'space'
       ) &&
-      /^[\\s.!,?;:_*#\\-]+$/.test(previous)
+      /^[\s.!,?;:_*#\-]+$/.test(previous)
     ) {
       referenceText = previous;
     }
@@ -6020,7 +6020,7 @@ function neroDeterministicCountReply(
   if (!referenceText) {
     // Also support "how many dots are here: .............".
     const tailMatch = original.match(
-      /[:：]\\s*([.!,?;:_*#\\-\\s]{2,})$/
+      /[:：]\s*([.!,?;:_*#\-\s]{2,})$/
     );
 
     if (tailMatch) {
@@ -6039,16 +6039,16 @@ function neroDeterministicCountReply(
       character => character === targetInfo.value
     ).length;
   } else if (targetInfo.type === 'space') {
-    count = (referenceText.match(/\\s/g) || []).length;
+    count = (referenceText.match(/\s/g) || []).length;
   } else if (targetInfo.type === 'letter') {
-    count = (referenceText.match(/[\\p{L}]/gu) || []).length;
+    count = (referenceText.match(/[\p{L}]/gu) || []).length;
   } else if (targetInfo.type === 'digit') {
-    count = (referenceText.match(/\\d/g) || []).length;
+    count = (referenceText.match(/\d/g) || []).length;
   } else if (targetInfo.type === 'character') {
     count = Array.from(referenceText).length;
   } else if (targetInfo.type === 'word') {
     count = referenceText.trim()
-      ? referenceText.trim().split(/\\s+/).length
+      ? referenceText.trim().split(/\s+/).length
       : 0;
   }
 
@@ -6074,7 +6074,7 @@ function neroDeterministicReply(
   }
 
   if (
-    /^(?:what(?:'s| is)\\s+)?(?:today(?:'s)?\\s+date|the\\s+date\\s+today)|^what\\s+date\\s+is\\s+it\\??$/i
+    /^(?:what(?:'s| is)\s+)?(?:today(?:'s)?\s+date|the\s+date\s+today)|^what\s+date\s+is\s+it\??$/i
       .test(lower)
   ) {
     return new Intl.DateTimeFormat(
@@ -6090,7 +6090,7 @@ function neroDeterministicReply(
   }
 
   if (
-    /^(?:what(?:'s| is)\\s+)?(?:the\\s+)?time(?:\\s+is\\s+it)?\\??$/i
+    /^(?:what(?:'s| is)\s+)?(?:the\s+)?time(?:\s+is\s+it)?\??$/i
       .test(lower)
   ) {
     return new Intl.DateTimeFormat(
@@ -6115,17 +6115,17 @@ function neroDeterministicReply(
   let mathExpression = '';
 
   const mathMatch = original.match(
-    /^(?:what(?:'s| is)|calculate|compute|solve)\\s+(.+?)\\??$/i
+    /^(?:what(?:'s| is)|calculate|compute|solve)\s+(.+?)\??$/i
   );
 
   if (mathMatch) {
     mathExpression = mathMatch[1].trim();
   } else if (
-    /^[\\d\\s()+\\-*/%.]+=?\\??$/.test(original)
+    /^[\d\s()+\-*/%.]+=?\??$/.test(original)
   ) {
     mathExpression = original
       .replace(/=+$/, '')
-      .replace(/\\?+$/, '')
+      .replace(/\?+$/, '')
       .trim();
   }
 
