@@ -1,6 +1,11 @@
 import { handleNeroTriviaMessage } from './neroTrivia.js';
 import { neroAdvancedMath } from './neroMath.js';
 import { handleNeroTagAllMessage } from './neroTagAll.js';
+import {
+  parseNeroHistorySearchRequest,
+  searchNeroHistory,
+  buildNeroHistorySearchPrompt,
+} from './neroHistorySearch.js';
 import fs from 'node:fs';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
@@ -8473,6 +8478,170 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
           continue;
         }
 
+
+        // NERO LOCAL HISTORY SEARCH
+        // Example:
+        //   Nero, where did Ada say she was travelling?
+        //   Nero search history for Ada travelling
+        //   Nero find the last 500 messages about the meetup
+        const historySearchRequest =
+          isGroup
+            ? parseNeroHistorySearchRequest(text)
+            : null;
+
+        if (isGroup && historySearchRequest) {
+          const groupHistory =
+            getNeroGroupHistory(jid);
+
+          const searchResult =
+            searchNeroHistory(
+              groupHistory,
+              historySearchRequest,
+              {
+                excludeId: message.key?.id || ''
+              }
+            );
+
+          console.log(
+            '[NERO HISTORY SEARCH]',
+            JSON.stringify({
+              jid,
+              query: historySearchRequest.query,
+              window: historySearchRequest.windowLabel,
+              scanned: searchResult.scanned,
+              candidates: searchResult.candidateCount,
+              inspected: searchResult.inspected
+            })
+          );
+
+          if (!searchResult.matches.length) {
+            const searchedTerms =
+              searchResult.searchTerms.join(', ') ||
+              historySearchRequest.query;
+
+            const noMatchText =
+              'Nothing in ' +
+              historySearchRequest.windowLabel +
+              ' matches that, as far as I can see. (' +
+              searchResult.scanned.toLocaleString() +
+              ' stored messages searched for ' +
+              searchedTerms +
+              '.)';
+
+            rememberNeroBotOutbound(
+              jid,
+              noMatchText
+            );
+
+            const sentNoMatch =
+              await sock.sendMessage(
+                jid,
+                {
+                  text: noMatchText
+                }
+              );
+
+            if (sentNoMatch?.key?.id) {
+              botSentMessageIds.add(
+                sentNoMatch.key.id
+              );
+
+              setTimeout(() => {
+                botSentMessageIds.delete(
+                  sentNoMatch.key.id
+                );
+              }, 5 * 60 * 1000);
+            }
+
+            continue;
+          }
+
+          try {
+            const searchPrompt =
+              buildNeroHistorySearchPrompt(
+                historySearchRequest.query,
+                historySearchRequest.windowLabel,
+                searchResult.matches
+              );
+
+            const answer =
+              String(
+                await askNeroRecap(
+                  jid,
+                  searchPrompt
+                )
+              ).trim();
+
+            if (!answer) {
+              throw new Error(
+                'History search model returned empty text.'
+              );
+            }
+
+            const searchSummary =
+              'I searched ' +
+              searchResult.scanned.toLocaleString() +
+              ' stored messages from ' +
+              historySearchRequest.windowLabel +
+              ' and checked the ' +
+              searchResult.inspected +
+              ' strongest matches.';
+
+            const finalHistoryText =
+              searchSummary +
+              '\\n\\n' +
+              answer;
+
+            rememberNeroBotOutbound(
+              jid,
+              finalHistoryText
+            );
+
+            const sentHistoryMessage =
+              await sock.sendMessage(
+                jid,
+                {
+                  text: finalHistoryText
+                }
+              );
+
+            if (sentHistoryMessage?.key?.id) {
+              botSentMessageIds.add(
+                sentHistoryMessage.key.id
+              );
+
+              setTimeout(() => {
+                botSentMessageIds.delete(
+                  sentHistoryMessage.key.id
+                );
+              }, 5 * 60 * 1000);
+            }
+          } catch (error) {
+            console.error(
+              '[NERO HISTORY SEARCH] Failed:',
+              error?.message || error
+            );
+
+            const errorText =
+              'I found ' +
+              searchResult.matches.length +
+              ' possible messages, but I could not reliably read them into an answer right now.';
+
+            rememberNeroBotOutbound(
+              jid,
+              errorText
+            );
+
+            await sock.sendMessage(
+              jid,
+              {
+                text: errorText
+              }
+            );
+          }
+
+          continue;
+        }
 
         // NERO ON-DEMAND GROUP RECAP
 
