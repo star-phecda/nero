@@ -4094,9 +4094,62 @@ const NERO_EXA_SEARCH_TYPE =
   ).trim() || 'fast';
 
 const NERO_WEB_CURRENT_PATTERN =
-  /\b(?:latest|most\s+recent|today|tonight|tomorrow|yesterday|right\s+now|currently|current|as\s+of\s+(?:now|today)|recent(?:ly)?|this\s+(?:week|month|year)|breaking(?:\s+news)?|news|update(?:s)?|release(?:d)?|release\s+date|version|price|pricing|cost|availability|available\s+now|in\s+stock|open\s+now|schedule|timetable|weather|forecast|score(?:s)?|standings|outage|incident|status|exchange\s+rate|stock\s+price|live)\b/i;
+  /\b(?:latest|most\s+recent|today|tonight|tomorrow|yesterday|right\s+now|currently|current|as\s+of\s+(?:now|today)|recent(?:ly)?|this\s+(?:week|month|year)|breaking(?:\s+news)?|news|update(?:s)?|release(?:d)?|release\s+date|version|price|pricing|cost|availability|available\s+now|in\s+stock|open\s+now|schedule|timetable|weather|forecast|score(?:s)?|standings|outage|incident|status|exchange\s+rate|stock\s+price|live)\b|\b(?:when|what(?:'s|\s+is)|which|how)\b[^?!.\n]{0,180}\b(?:coming\s+out|release(?:d|s|ing)?|launch(?:ed|es|ing)?|available|drop(?:ped|ping|s)?|air(?:ed|s|ing)?|start(?:s|ed|ing)?)\b/i;
 
-function neroDetectWebSearchIntent(text) {
+function neroPreviousUserQuery(
+  jid,
+  currentText
+) {
+  const history =
+    Array.isArray(conversations.get(jid))
+      ? conversations.get(jid)
+      : [];
+
+  const current =
+    String(currentText || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+
+  for (
+    let index = history.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    const item = history[index];
+    const candidate =
+      String(item?.text || '').trim();
+
+    if (!candidate) {
+      continue;
+    }
+
+    const normalized =
+      candidate
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+
+    if (normalized === current) {
+      continue;
+    }
+
+    if (
+      String(item?.sender || '').trim() ===
+      String(BOT_NAME || '').trim()
+    ) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return '';
+}
+
+function neroDetectWebSearchIntent(
+  text,
+  jid = ''
+) {
   const original =
     String(text || '').trim();
 
@@ -4104,14 +4157,55 @@ function neroDetectWebSearchIntent(text) {
     return null;
   }
 
-  const explicitMatch =
-    original.match(
-      /^s*(?:!neros*)?(?:neros*[,!:;-]?s*)?(?:searchs+(?:thes+)?(?:web|internet)|webs+search)s*(?:fors+)?([sS]+?)s*$/i
-    );
+  let commandText =
+    original
+      .replace(
+        /^!?(?:nero)\s*[,!:;-]?\s*/i,
+        ''
+      )
+      .trim();
 
-  if (explicitMatch) {
-    const query =
-      String(explicitMatch[1] || '').trim();
+  const explicitPatterns = [
+    /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?search\s+(?:the\s+)?(?:web|internet)\b\s*(?:for\s*)?(.*)$/i,
+    /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?web\s+search\b\s*(?:for\s*)?(.*)$/i,
+    /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?search\s+online\b\s*(?:for\s*)?(.*)$/i,
+    /^(?:i\s+(?:want|need)\s+you\s+to\s+)?(?:please\s+)?(?:look\s+(?:this|it)\s+up(?:\s+online)?|check\s+the\s+internet|find\s+(?:this|it|that)\s+out\s+online)\b\s*(.*)$/i
+  ];
+
+  for (const pattern of explicitPatterns) {
+    const match =
+      commandText.match(pattern);
+
+    if (!match) {
+      continue;
+    }
+
+    let query =
+      String(match[1] || '').trim();
+
+    query =
+      query
+        .replace(
+          /^(?:and\s+)?(?:find\s+out|check\s+online|look\s+it\s+up|search\s+for)\s*/i,
+          ''
+        )
+        .trim();
+
+    if (
+      /^(?:this|that|it|the\s+above|what\s+i\s+just\s+asked)$/i.test(
+        query
+      )
+    ) {
+      query = '';
+    }
+
+    if (!query) {
+      query =
+        neroPreviousUserQuery(
+          jid,
+          original
+        );
+    }
 
     if (query) {
       return {
@@ -4119,6 +4213,8 @@ function neroDetectWebSearchIntent(text) {
         mode: 'explicit'
       };
     }
+
+    return null;
   }
 
   if (
@@ -4133,7 +4229,6 @@ function neroDetectWebSearchIntent(text) {
 
   return null;
 }
-
 function neroCompactExaHighlight(
   result
 ) {
@@ -4147,7 +4242,7 @@ function neroCompactExaHighlight(
           : '';
 
   return raw
-    .replace(/s+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
     .slice(
       0,
@@ -4292,13 +4387,16 @@ async function neroSearchExa(
   };
 }
 
-async function neroMaybeWebSearch(text) {
+async function neroMaybeWebSearch(text, jid = '') {
   if (!NERO_EXA_ENABLED) {
     return null;
   }
 
   const intent =
-    neroDetectWebSearchIntent(text);
+    neroDetectWebSearchIntent(
+      text,
+      jid
+    );
 
   if (!intent) {
     return null;
@@ -6460,7 +6558,10 @@ async function askGemini(
     .join('\n');
 
   const webSearch =
-    await neroMaybeWebSearch(text);
+    await neroMaybeWebSearch(
+      text,
+      jid
+    );
 
   const prompt =
     await buildPrompt(
