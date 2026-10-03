@@ -4060,7 +4060,344 @@ async function neroRememberCurrentGroup(sock, jid) {
   return name;
 }
 
-async function buildPrompt(jid, sender, text, groupRoster, senderId = '') {
+
+const NERO_EXA_ENABLED =
+  process.env.NERO_EXA_SEARCH_ENABLED !== 'false';
+
+const NERO_EXA_MAX_RESULTS = Math.max(
+  1,
+  Math.min(
+    5,
+    Number(process.env.NERO_EXA_MAX_RESULTS || 3)
+  )
+);
+
+const NERO_EXA_MAX_HIGHLIGHT_CHARS = Math.max(
+  300,
+  Math.min(
+    1400,
+    Number(process.env.NERO_EXA_MAX_HIGHLIGHT_CHARS || 900)
+  )
+);
+
+const NERO_EXA_TIMEOUT_MS = Math.max(
+  2500,
+  Math.min(
+    15000,
+    Number(process.env.NERO_EXA_TIMEOUT_MS || 8000)
+  )
+);
+
+const NERO_EXA_SEARCH_TYPE =
+  String(
+    process.env.NERO_EXA_SEARCH_TYPE || 'fast'
+  ).trim() || 'fast';
+
+const NERO_WEB_CURRENT_PATTERN =
+  /(
+    latest|
+    mosts+recent|
+    today|
+    tonight|
+    tomorrow|
+    yesterday|
+    rights+now|
+    currently|
+    current|
+    ass+ofs+(?:now|today)|
+    recent(?:ly)?|
+    thiss+(?:week|month|year)|
+    breaking(?:s+news)?|
+    news|
+    update(?:s)?|
+    release(?:d)?|
+    releases+date|
+    version|
+    price|
+    pricing|
+    cost|
+    availability|
+    availables+now|
+    ins+stock|
+    opens+now|
+    schedule|
+    timetable|
+    weather|
+    forecast|
+    score(?:s)?|
+    standings|
+    outage|
+    incident|
+    status|
+    exchanges+rate|
+    stocks+price|
+    live
+  )/ix;
+
+function neroDetectWebSearchIntent(text) {
+  const original =
+    String(text || '').trim();
+
+  if (!original) {
+    return null;
+  }
+
+  const explicitMatch =
+    original.match(
+      /^s*(?:!neros*)?(?:neros*[,!:;-]?s*)?(?:searchs+(?:thes+)?(?:web|internet)|webs+search)s*(?:fors+)?([sS]+?)s*$/i
+    );
+
+  if (explicitMatch) {
+    const query =
+      String(explicitMatch[1] || '').trim();
+
+    if (query) {
+      return {
+        query,
+        mode: 'explicit'
+      };
+    }
+  }
+
+  if (
+    original.length >= 8 &&
+    NERO_WEB_CURRENT_PATTERN.test(original)
+  ) {
+    return {
+      query: original,
+      mode: 'automatic'
+    };
+  }
+
+  return null;
+}
+
+function neroCompactExaHighlight(
+  result
+) {
+  const raw =
+    Array.isArray(result?.highlights)
+      ? result.highlights.join(' ')
+      : typeof result?.highlights === 'string'
+        ? result.highlights
+        : typeof result?.text === 'string'
+          ? result.text
+          : '';
+
+  return raw
+    .replace(/s+/g, ' ')
+    .trim()
+    .slice(
+      0,
+      NERO_EXA_MAX_HIGHLIGHT_CHARS
+    );
+}
+
+async function neroSearchExa(
+  query,
+  mode = 'automatic'
+) {
+  const apiKey =
+    String(process.env.EXA_API_KEY || '').trim();
+
+  if (!apiKey) {
+    console.log(
+      '[EXA] EXA_API_KEY missing; using normal model answer.'
+    );
+    return null;
+  }
+
+  const started = Date.now();
+
+  const response =
+    await fetch(
+      'https://api.exa.ai/search',
+      {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query,
+          type: NERO_EXA_SEARCH_TYPE,
+          numResults: NERO_EXA_MAX_RESULTS,
+          contents: {
+            highlights: true
+          }
+        }),
+        signal:
+          AbortSignal.timeout(
+            NERO_EXA_TIMEOUT_MS
+          )
+      }
+    );
+
+  if (!response.ok) {
+    let details = '';
+
+    try {
+      const data =
+        await response.json();
+
+      details =
+        data?.error ||
+        data?.message ||
+        '';
+    } catch {}
+
+    const error =
+      new Error(
+        'Exa request failed (' +
+        response.status +
+        ')' +
+        (
+          details
+            ? ': ' + details
+            : ''
+        )
+      );
+
+    error.status =
+      response.status;
+
+    throw error;
+  }
+
+  const data =
+    await response.json();
+
+  const results =
+    Array.isArray(data?.results)
+      ? data.results
+          .map(result => ({
+            title:
+              String(
+                result?.title ||
+                result?.url ||
+                'Untitled source'
+              ).trim(),
+            url:
+              String(
+                result?.url || ''
+              ).trim(),
+            excerpt:
+              neroCompactExaHighlight(
+                result
+              )
+          }))
+          .filter(
+            result =>
+              result.url &&
+              result.excerpt
+          )
+          .slice(
+            0,
+            NERO_EXA_MAX_RESULTS
+          )
+      : [];
+
+  if (!results.length) {
+    console.log(
+      '[EXA] No usable results —',
+      Date.now() - started,
+      'ms'
+    );
+
+    return null;
+  }
+
+  console.log(
+    '[EXA] ' +
+      (
+        mode === 'explicit'
+          ? 'Explicit'
+          : 'Automatic'
+      ) +
+      ' search — ' +
+      query +
+      ' — ' +
+      results.length +
+      ' results — ' +
+      (Date.now() - started) +
+      ' ms'
+  );
+
+  return {
+    query,
+    mode,
+    results
+  };
+}
+
+async function neroMaybeWebSearch(text) {
+  if (!NERO_EXA_ENABLED) {
+    return null;
+  }
+
+  const intent =
+    neroDetectWebSearchIntent(text);
+
+  if (!intent) {
+    return null;
+  }
+
+  try {
+    return await neroSearchExa(
+      intent.query,
+      intent.mode
+    );
+  } catch (error) {
+    console.error(
+      '[EXA] Search failed; falling back to normal model:',
+      error?.message || error
+    );
+
+    return null;
+  }
+}
+
+function neroAppendWebSources(
+  reply,
+  webSearch
+) {
+  const output =
+    String(reply || '').trim();
+
+  if (
+    !webSearch?.results?.length
+  ) {
+    return output;
+  }
+
+  const sources =
+    webSearch.results
+      .slice(0, 3)
+      .map(
+        (source, index) =>
+          (
+            index + 1
+          ) +
+          '. ' +
+          source.title +
+          '
+' +
+          source.url
+      )
+      .join('
+');
+
+  return (
+    output +
+    '
+
+Sources:
+' +
+    sources
+  ).trim();
+}
+
+async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSearch = null) {
   const history = (conversations.get(jid) ?? []).slice(-12);
 
   const recent = history
@@ -4086,6 +4423,30 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '') {
 
   const boundedGroupRosterText =
     String(groupRosterText).slice(0, 3000);
+
+  const webSearchBlock =
+    webSearch?.results?.length
+      ? [
+          'LIVE WEB SEARCH CONTEXT:',
+          'A web search was performed for the current message.',
+          'Use these source excerpts as the factual web evidence for this answer.',
+          'Prefer this fresh evidence over stale memory when the question is time-sensitive.',
+          'Do not invent, alter, or cite URLs that are not present below.',
+          'The application will append the source URLs after your reply; do not add a Sources section yourself.',
+          'SEARCH QUERY: ' + webSearch.query,
+          '',
+          webSearch.results
+            .map(function (result, index) {
+              return [
+                'SOURCE ' + (index + 1),
+                'Title: ' + result.title,
+                'URL: ' + result.url,
+                'Excerpt: ' + result.excerpt
+              ].join('\n');
+            })
+            .join('\n\n')
+        ].join('\n')
+      : '';
 
   return [
     'You are Nero Claudius, a female member of a WhatsApp group.',
@@ -4390,6 +4751,8 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '') {
 
     'RECENT CONVERSATION:',
     recent || '(none)',
+    '',
+    webSearchBlock,
     '',
     'CURRENT SPEAKER ROLE: ' +
       (isNeroDawnId(senderId)
@@ -6166,14 +6529,25 @@ async function askGemini(
     .filter(Boolean)
     .join('\n');
 
+  const webSearch =
+    await neroMaybeWebSearch(text);
+
   const prompt =
     await buildPrompt(
       jid,
       sender,
       promptText,
       await neroGetGroupRoster(sock, jid),
-      senderId
+      senderId,
+      webSearch
     );
+
+  const finish =
+    reply =>
+      neroAppendWebSources(
+        reply,
+        webSearch
+      );
 
   const selectedKey = getNeroSelectedModel(jid);
 
@@ -6188,12 +6562,12 @@ async function askGemini(
         '(' + (preferredModel.model || 'auto') + ')'
       );
 
-      return await askNeroSelectedModel(
+      return finish(await askNeroSelectedModel(
         selectedKey,
         prompt,
         started,
         media
-      );
+      )));
     } catch (error) {
       console.error(
         '[NERO MODEL] Preferred model failed:',
@@ -6211,12 +6585,12 @@ async function askGemini(
 
   for (const model of geminiModels) {
     try {
-      return await askGeminiDirect(
+      return finish(await askGeminiDirect(
         prompt,
         model,
         started,
         media
-      );
+      )));
     } catch (error) {
       console.error(
         '[GEMINI] ' + model + ' failed: ' +
@@ -6230,12 +6604,12 @@ async function askGemini(
   }
 
   try {
-    return await askGroq(
+    return finish(await askGroq(
       prompt,
       started,
       null,
       media
-    );
+    )));
   } catch (error) {
     console.error('[GROQ] Failed: ' + String(error?.message || error));
     if (
@@ -6249,10 +6623,10 @@ async function askGemini(
 
   if (!media) {
     try {
-      return await askFHRouter(
+      return finish(await askFHRouter(
         prompt,
         started
-      );
+      )));
     } catch (error) {
       console.error(
         '[FHROUTER] Failed: ' +
@@ -6296,12 +6670,12 @@ async function askGemini(
         ')'
       );
 
-      return await askApmix(
+      return finish(await askApmix(
         prompt,
         started,
         candidate.model,
         media
-      );
+      )));
     } catch (error) {
       console.error(
         '[APMIX] ' +
@@ -6314,7 +6688,7 @@ async function askGemini(
 
   if (!media) {
     try {
-      return await askOpenRouter(prompt, started);
+      return finish(await askOpenRouter(prompt, started)));
     } catch (error) {
       console.error('[OPENROUTER] Failed: ' + String(error?.message || error));
       if (
@@ -6367,12 +6741,12 @@ async function askGemini(
         (media ? ' [' + media.kind + ']' : '')
       );
 
-      return await askNvidiaNim(
+      return finish(await askNvidiaNim(
         prompt,
         started,
         candidate.model,
         media
-      );
+      )));
     } catch (error) {
       console.error(
         '[NVIDIA NIM] ' +
@@ -6386,12 +6760,12 @@ async function askGemini(
   // Cloudflare Gemma 4 is the multimodal Cloudflare fallback.
   // GLM-4.7-Flash remains the text-only Cloudflare fallback.
   try {
-    return await askCloudflare(
+    return finish(await askCloudflare(
       prompt,
       started,
       getNeroModelInfo('cloudflare_gemma').model,
       media
-    );
+    )));
   } catch (error) {
     console.error(
       '[CLOUDFLARE GEMMA] Failed: ' +
@@ -6401,11 +6775,11 @@ async function askGemini(
 
   if (!media) {
     try {
-      return await askCloudflare(
+      return finish(await askCloudflare(
         prompt,
         started,
         getNeroModelInfo('cloudflare_glm').model
-      );
+      )));
     } catch (error) {
       console.error(
         '[CLOUDFLARE GLM] Failed: ' +
@@ -6413,7 +6787,7 @@ async function askGemini(
       );
     }
 
-    return await askMistral(prompt, started);
+    return finish(await askMistral(prompt, started)));
   }
 
   throw new Error(
