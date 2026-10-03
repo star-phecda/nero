@@ -70,11 +70,21 @@ export class NeroPlanner {
       needsStrongReasoning;
 
     const needsVerification =
-      mode === 'god' &&
       (
-        needsStrongReasoning ||
-        needsTools ||
-        needsWebSearch
+        mode === 'god' &&
+        (
+          needsStrongReasoning ||
+          needsTools ||
+          needsWebSearch
+        )
+      ) ||
+      (
+        needsStrongReasoning &&
+        (
+          hasHistory ||
+          needsWebSearch ||
+          projectTask
+        )
       );
 
     let tier = 'normal';
