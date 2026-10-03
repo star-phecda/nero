@@ -6924,6 +6924,75 @@ function normalizeNeroDmTarget(value) {
   return phone + '@s.whatsapp.net';
 }
 
+function normalizeNeroGroupName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+async function resolveNeroOutboundGroup(sock, requestedName) {
+  const wanted = normalizeNeroGroupName(requestedName);
+
+  if (!wanted) return null;
+
+  const groups =
+    await sock.groupFetchAllParticipating();
+
+  const entries =
+    Object.entries(groups || {});
+
+  const exact =
+    entries.filter(([, metadata]) =>
+      normalizeNeroGroupName(
+        metadata?.subject
+      ) === wanted
+    );
+
+  if (exact.length === 1) {
+    return {
+      jid: exact[0][0],
+      name:
+        exact[0][1]?.subject ||
+        requestedName
+    };
+  }
+
+  if (exact.length > 1) {
+    throw new Error(
+      'More than one participating group is named "' +
+      requestedName +
+      '".'
+    );
+  }
+
+  const partial =
+    entries.filter(([, metadata]) =>
+      normalizeNeroGroupName(
+        metadata?.subject
+      ).includes(wanted)
+    );
+
+  if (partial.length === 1) {
+    return {
+      jid: partial[0][0],
+      name:
+        partial[0][1]?.subject ||
+        requestedName
+    };
+  }
+
+  if (partial.length > 1) {
+    throw new Error(
+      'Multiple participating groups match "' +
+      requestedName +
+      '". Use the exact group name.'
+    );
+  }
+
+  return null;
+}
+
 function buildNeroOutboundConversationContext(sourceJid) {
   if (sourceJid?.endsWith('@g.us')) {
     const history = getNeroGroupHistory(sourceJid).slice(-120);
@@ -6979,7 +7048,7 @@ function buildNeroOutboundDmPrompt(
     'Keep Nero\'s usual voice: confident, sharp, casual, expressive, concise, occasionally theatrical or teasing when appropriate.',
     'Do not add a greeting or pleasantry unless it genuinely belongs in the message.',
     'Do not use stiff business language, ceremonial phrasing, or customer-service wording.',
-    'The recipient is a separate person. Do not pretend the recipient is Master.',
+    'The recipient may be a person or a group. Do not pretend the recipient is Master.',
     '',
     'MASTER INSTRUCTION:',
     String(instruction || '').trim(),
@@ -8157,6 +8226,37 @@ async function startNero() {
             const body =
               prefixMatch[1].trim();
 
+            // Named-group outbound form:
+            // Nero send a message to the group "KETER: BACK IN ACTION"
+            // saying renzo is short. Make it seem like it's you.
+            let match =
+              body.match(
+                /^(?:send|message|msg|write)\\s+(?:a\\s+)?message\\s+to\\s+(?:the\\s+)?group\\s+[\\"“]([^\\"”]+)[\\"”]\\s+(?:saying|that)\\s+([\\s\\S]+)$/i
+              );
+
+            if (match) {
+              return {
+                groupName: match[1].trim(),
+                instruction: match[2].trim()
+              };
+            }
+
+            // Also accept an unquoted group name when "saying"/"that"
+            // clearly separates the target from the message.
+            match =
+              body.match(
+                /^(?:send|message|msg|write)\\s+(?:a\\s+)?message\\s+to\\s+(?:the\\s+)?group\\s+(.+?)\\s+(?:saying|that)\\s+([\\s\\S]+)$/i
+              );
+
+            if (match) {
+              return {
+                groupName: match[1]
+                  .trim()
+                  .replace(/^[\\"“]|[\\"”]$/g, ''),
+                instruction: match[2].trim()
+              };
+            }
+
             // Explicit form:
             // Nero dm <phone> <instruction>
             let match =
@@ -8209,10 +8309,40 @@ async function startNero() {
             );
 
           if (dmRequest) {
-            const targetJid =
-              normalizeNeroDmTarget(
-                dmRequest.target
-              );
+            let targetJid = null;
+            let targetLabel = '';
+
+            if (dmRequest.groupName) {
+              const group =
+                await resolveNeroOutboundGroup(
+                  sock,
+                  dmRequest.groupName
+                );
+
+              if (!group) {
+                await sendNeroControlMessage(
+                  sock,
+                  jid,
+                  'I could not find a participating group named "' +
+                  dmRequest.groupName +
+                  '".'
+                );
+                continue;
+              }
+
+              targetJid = group.jid;
+              targetLabel = group.name;
+            } else {
+              targetJid =
+                normalizeNeroDmTarget(
+                  dmRequest.target
+                );
+
+              targetLabel =
+                targetJid
+                  ? '+' + targetJid.split('@')[0]
+                  : '';
+            }
 
             const instruction =
               String(
@@ -8223,7 +8353,9 @@ async function startNero() {
               await sendNeroControlMessage(
                 sock,
                 jid,
-                'That does not look like a valid WhatsApp phone number.'
+                dmRequest.groupName
+                  ? 'I could not resolve that group.'
+                  : 'That does not look like a valid WhatsApp phone number.'
               );
               continue;
             }
@@ -8239,8 +8371,9 @@ async function startNero() {
 
             try {
               console.log(
-                '[NERO DM] Preparing outbound DM:',
-                targetJid,
+                '[NERO OUTBOUND] Preparing:',
+                targetLabel,
+                '(' + targetJid + ')',
                 '| Instruction:',
                 instruction
               );
@@ -8308,16 +8441,18 @@ async function startNero() {
               await sendNeroControlMessage(
                 sock,
                 jid,
-                '✅ Sent the DM to +' +
-                targetJid.split('@')[0] +
+                '✅ Sent the message to ' +
+                targetLabel +
                 '.\n\n' +
                 reply
               );
 
               console.log(
-                '[NERO DM] Sent to ' +
+                '[NERO OUTBOUND] Sent to ' +
+                targetLabel +
+                ' (' +
                 targetJid +
-                ': ' +
+                '): ' +
                 reply
               );
             } catch (error) {
