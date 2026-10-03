@@ -8932,30 +8932,45 @@ const masterMentioned = mentionedJids.some(jid =>
         // In DMs, Nero only responds when explicitly prompted.
         // A prompt is saying/mentioning "Nero" or replying to Nero.
         // Group behavior remains unchanged.
-        const shouldRespond = media
-          ? (
-              isGroup
-                ? (
-                    isMasterMessage ||
-                    RESPOND_TO_ALL_GROUP_MESSAGES ||
-                    masterMentioned ||
-                    repliedToMaster ||
-                    saidNero
+        // Stickers are self-contained visual messages: there is no text
+        // inside them on which the normal "say Nero / reply / mention"
+        // trigger can rely. Treat a sticker as an explicit conversational
+        // input so Nero can actually inspect and react to it.
+        const isStickerMedia =
+          media?.kind === 'sticker';
+
+        const shouldRespond = isStickerMedia
+          ? true
+          : media
+            ? (
+                isGroup
+                  ? (
+                      isMasterMessage ||
+                      RESPOND_TO_ALL_GROUP_MESSAGES ||
+                      masterMentioned ||
+                      repliedToMaster ||
+                      saidNero
+                    )
+                  : true
+              )
+            : (
+                isGroup
+                  ? (
+                      masterMentioned ||
+                      repliedToMaster ||
+                      saidNero
+                    )
+                  : (
+                      repliedToMaster ||
+                      saidNero
                   )
-                : true
-            )
-          : (
-              isGroup
-                ? (
-                    masterMentioned ||
-                    repliedToMaster ||
-                    saidNero
-                  )
-                : (
-                    repliedToMaster ||
-                    saidNero
-                  )
-            );
+              );
+
+        if (isStickerMedia && shouldRespond) {
+          console.log(
+            '[NERO TRIGGER] Sticker accepted for model processing.'
+          );
+        }
 
         // NERO NATURAL CALL RESPONSES
         // Simple calls do not need an LLM request.
