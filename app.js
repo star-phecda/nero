@@ -24,6 +24,7 @@ import { Boom } from '@hapi/boom';
 import qrcode from 'qrcode-terminal';
 import P from 'pino';
 import { GoogleGenAI } from '@google/genai';
+import { NeroRuntime } from './src/core/neroRuntime.js';
 
 const MODEL =
   process.env.NERO_PRIMARY_MODEL || 'gemini-3.5-flash-lite';
@@ -302,6 +303,10 @@ const NERO_MODEL_CATALOG = [
   }
 ];
 
+const neroRuntime = new NeroRuntime({
+  stateFile: process.cwd() + '/nero_runtime.json',
+  modelCatalog: NERO_MODEL_CATALOG
+});
 
 function resolveNeroCatalogModelKey(modelId) {
   const normalized = String(modelId || '').trim();
@@ -3996,7 +4001,13 @@ function addToHistory(jid, sender, text) {
   if (!conversations.has(jid)) conversations.set(jid, []);
   const history = conversations.get(jid);
   history.push({ sender, text });
-  while (history.length > CONTEXT_MESSAGES) history.shift();
+
+  const contextLimit =
+    neroRuntime.getContextPolicy(jid).recentMessages;
+
+  while (history.length > contextLimit) {
+    history.shift();
+  }
 }
 
 
@@ -4805,6 +4816,8 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSea
     '',
     webSearchBlock,
     '',
+    'RUNTIME MODE: ' + neroRuntime.getProfile(jid).name,
+    'RUNTIME CAPABILITIES: ' + neroRuntime.getCapabilities(jid).join(', '),
     'CURRENT SPEAKER ROLE: ' +
       (isNeroDawnId(senderId)
         ? 'Dawn'
@@ -6604,6 +6617,60 @@ async function askGemini(
       );
 
   const selectedKey = getNeroSelectedModel(jid);
+
+  const runtimeDecision =
+    neroRuntime.routeModel(jid, {
+      text,
+      media,
+      selectedModel: selectedKey
+    });
+
+  console.log(
+    '[NERO RUNTIME]',
+    JSON.stringify({
+      jid,
+      mode: runtimeDecision.plan.mode,
+      tier: runtimeDecision.plan.tier,
+      reason: runtimeDecision.plan.reason,
+      route: runtimeDecision.route.modelKey,
+      source: runtimeDecision.route.source,
+      planning: runtimeDecision.plan.planning,
+      webSearch: runtimeDecision.plan.needsWebSearch
+    })
+  );
+
+  if (
+    selectedKey === 'auto' &&
+    runtimeDecision.route.modelKey !== 'auto'
+  ) {
+    try {
+      const routedModel =
+        getNeroModelInfo(
+          runtimeDecision.route.modelKey
+        );
+
+      console.log(
+        '[NERO RUNTIME] Routed model:',
+        routedModel.label
+      );
+
+      return finish(await askNeroSelectedModel(
+        runtimeDecision.route.modelKey,
+        prompt,
+        started,
+        media
+      ));
+    } catch (error) {
+      console.error(
+        '[NERO RUNTIME] Routed model failed:',
+        runtimeDecision.route.modelKey,
+        String(error?.message || error)
+      );
+      console.log(
+        '[NERO RUNTIME] Continuing normal fallback chain.'
+      );
+    }
+  }
 
   if (selectedKey && selectedKey !== 'auto') {
     try {
@@ -8676,9 +8743,92 @@ async function startNero() {
           }
 
           if (neroCommand === '!nero status') {
+            const runtimeProfile =
+              neroRuntime.getProfile(jid);
+
             await sock.sendMessage(jid, {
-              text: neroMuted ? 'Nero is muted.' : 'Nero is active.'
+              text:
+                (neroMuted
+                  ? 'Nero is muted.'
+                  : 'Nero is active.') +
+                '
+Runtime: ' +
+                runtimeProfile.name +
+                '
+Tier: ' +
+                runtimeProfile.modelTier
             });
+            continue;
+          }
+
+          const runtimeModeCommand =
+            neroCommand.match(
+              /^!nero(?:\s+mode)?\s+(normal|god)$/i
+            );
+
+          if (runtimeModeCommand) {
+            const requestedMode =
+              runtimeModeCommand[1].toLowerCase();
+
+            const mode =
+              neroRuntime.setMode(
+                jid,
+                requestedMode
+              );
+
+            const profile =
+              neroRuntime.getProfile(jid);
+
+            await sendNeroControlMessage(
+              sock,
+              jid,
+              mode === 'god'
+                ? '⚡ GOD MODE ACTIVATED.
+Tier: ' +
+                    profile.modelTier.toUpperCase() +
+                    '
+Planning: ON
+Expanded context: ON'
+                : 'NORMAL MODE RESTORED.'
+            );
+
+            console.log(
+              '[NERO RUNTIME] Mode changed:',
+              jid,
+              '→',
+              mode
+            );
+
+            continue;
+          }
+
+          if (
+            neroCommand === '!nero mode' ||
+            neroCommand === '!nero runtime'
+          ) {
+            const profile =
+              neroRuntime.getProfile(jid);
+
+            await sendNeroControlMessage(
+              sock,
+              jid,
+              'Nero runtime
+
+' +
+              'Mode: ' + profile.name + '
+' +
+              'Tier: ' + profile.modelTier + '
+' +
+              'Planning: ' +
+              (profile.planning ? 'ON' : 'OFF') + '
+' +
+              'Expanded context: ' +
+              (profile.expandedContext ? 'ON' : 'OFF') + '
+' +
+              'Capabilities: ' +
+              neroRuntime.getCapabilities(jid).join(', ')
+            );
+
             continue;
           }
         }

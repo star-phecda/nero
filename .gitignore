@@ -8,3 +8,4 @@ nero-log.txt
 
 app.js.before-*
 nero_group_history.json
+nero_runtime.json
