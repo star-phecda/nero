@@ -25,6 +25,8 @@ import qrcode from 'qrcode-terminal';
 import P from 'pino';
 import { GoogleGenAI } from '@google/genai';
 import { NeroRuntime } from './src/core/neroRuntime.js';
+import { NeroMemoryService } from './src/core/neroMemory.js';
+import { NeroContextAssembler } from './src/core/neroContextAssembler.js';
 
 const MODEL =
   process.env.NERO_PRIMARY_MODEL || 'gemini-3.5-flash-lite';
@@ -732,11 +734,8 @@ function neroQuotaText(key) {
 loadNeroModelSettings();
 
 
-// NERO LONG-TERM MEMORY
+// NERO LONG-TERM MEMORY — Phase 3
 const NERO_MEMORY_FILE = process.cwd() + '/nero_memory.json';
-
-// Canonical identity for Dawn inside Nero's world.
-// WhatsApp may expose either a phone JID, a device-suffixed JID, or a participantPn.
 const NERO_DAWN_PHONE = '2347066350574';
 
 function normalizeNeroPhone(value) {
@@ -746,196 +745,34 @@ function normalizeNeroPhone(value) {
     .replace(/[^0-9]/g, '');
 
   if (!raw) return '';
-
-  // Accept local Nigerian form as well as the canonical +234 form.
-  if (raw.startsWith('0') && raw.length === 11) {
-    return '234' + raw.slice(1);
-  }
-
+  if (raw.startsWith('0') && raw.length === 11) return '234' + raw.slice(1);
   return raw;
 }
 
-function isNeroDawnId(value) {
-  return normalizeNeroPhone(value) === NERO_DAWN_PHONE;
-}
-
+function isNeroDawnId(value) { return normalizeNeroPhone(value) === NERO_DAWN_PHONE; }
 function neroDawnCandidates(message) {
-  return [
-    message?.key?.participantPn,
-    message?.key?.participant,
-    message?.key?.participantAlt,
-    message?.participant,
-    message?.key?.remoteJid,
-  ].filter(Boolean).map(String);
+  return [message?.key?.participantPn,message?.key?.participant,message?.key?.participantAlt,message?.participant,message?.key?.remoteJid].filter(Boolean).map(String);
 }
+function isNeroDawnMessage(message) { return neroDawnCandidates(message).some(isNeroDawnId); }
 
-function isNeroDawnMessage(message) {
-  return neroDawnCandidates(message).some(isNeroDawnId);
+const neroMemory = new NeroMemoryService({ filePath: NERO_MEMORY_FILE });
+const neroContextAssembler = new NeroContextAssembler({ memory: neroMemory, defaultBudgetChars: 3000 });
+
+function getNeroGroupMemoryScope(jid) { return jid ? 'group:' + jid : 'master'; }
+function getNeroGroupMemory(jid) { return neroMemory.list({ scope: getNeroGroupMemoryScope(jid), type: 'facts' }); }
+function addNeroMemory(jid, scope, fact, metadata = {}) {
+  const targetScope = scope === 'master' ? 'master' : getNeroGroupMemoryScope(jid);
+  return Boolean(neroMemory.add(fact, { ...metadata, type: metadata.type || 'facts', scope: targetScope, source: metadata.source || 'whatsapp-memory' }));
 }
-
-
-let neroMemory = {
-  master: [],
-  groups: {}
-};
-
-function loadNeroMemory() {
-  try {
-    if (fs.existsSync(NERO_MEMORY_FILE)) {
-      const saved = JSON.parse(fs.readFileSync(NERO_MEMORY_FILE, 'utf8'));
-
-      if (saved && typeof saved === 'object') {
-        neroMemory = {
-          master: Array.isArray(saved.master) ? saved.master : [],
-          groups:
-            saved.groups && typeof saved.groups === 'object'
-              ? saved.groups
-              : {}
-        };
-      }
-    }
-  } catch (error) {
-    console.log('[Memory] Could not load memory:', error.message);
-  }
-}
-
-function saveNeroMemory() {
-  try {
-    fs.writeFileSync(
-      NERO_MEMORY_FILE,
-      JSON.stringify(neroMemory, null, 2)
-    );
-  } catch (error) {
-    console.log('[Memory] Could not save memory:', error.message);
-  }
-}
-
-function getNeroGroupMemory(jid) {
-  if (!neroMemory.groups[jid]) {
-    neroMemory.groups[jid] = [];
-  }
-
-  return neroMemory.groups[jid];
-}
-
-function addNeroMemory(jid, scope, fact) {
-  const clean = fact.trim();
-
-  if (!clean) {
-    return false;
-  }
-
-  const target =
-    scope === 'master'
-      ? neroMemory.master
-      : getNeroGroupMemory(jid);
-
-  const duplicate = target.some(
-    item => item.toLowerCase() === clean.toLowerCase()
-  );
-
-  if (duplicate) {
-    return false;
-  }
-
-  target.push(clean);
-
-  // Keep the memory file small and useful.
-  if (scope === 'master' && target.length > 100) {
-    target.splice(0, target.length - 100);
-  }
-
-  if (scope !== 'master' && target.length > 100) {
-    target.splice(0, target.length - 100);
-  }
-
-  saveNeroMemory();
-  return true;
-}
-
 function forgetNeroMemory(jid, query) {
-  const q = query.trim().toLowerCase();
-
-  if (!q) {
-    return 0;
-  }
-
-  let removed = 0;
-
-  const oldMasterLength = neroMemory.master.length;
-
-  neroMemory.master = neroMemory.master.filter(
-    item => !item.toLowerCase().includes(q)
-  );
-
-  removed += oldMasterLength - neroMemory.master.length;
-
-  const group = getNeroGroupMemory(jid);
-
-  const oldGroupLength = group.length;
-
-  neroMemory.groups[jid] = group.filter(
-    item => !item.toLowerCase().includes(q)
-  );
-
-  removed += oldGroupLength - neroMemory.groups[jid].length;
-
-  if (removed > 0) {
-    saveNeroMemory();
-  }
-
-  return removed;
+  return neroMemory.remove(query, { scope: 'master' }) + neroMemory.remove(query, { scope: getNeroGroupMemoryScope(jid) });
 }
-
-function clearNeroGroupMemory(jid) {
-  neroMemory.groups[jid] = [];
-  saveNeroMemory();
+function clearNeroGroupMemory(jid) { return neroMemory.clearScope(getNeroGroupMemoryScope(jid)); }
+function formatNeroMemoryForPrompt(jid, query = '') {
+  return neroMemory.buildContext(query || 'important information about Master, this group, preferences, projects, people and recent events', { scope: getNeroGroupMemoryScope(jid), limit: 30, maxChars: 2500 }).text;
 }
+console.log('[Memory] Phase 3 memory loaded.');
 
-function formatNeroMemoryForPrompt(jid) {
-  const lines = [];
-
-  if (neroMemory.master.length > 0) {
-    lines.push('About Master:');
-
-    for (const item of neroMemory.master.slice(-20)) {
-      lines.push('- ' + item);
-    }
-  }
-
-  const group = getNeroGroupMemory(jid);
-
-  if (group.length > 0) {
-    lines.push('');
-    lines.push('About this group:');
-
-    for (const item of group.slice(-20)) {
-      lines.push('- ' + item);
-    }
-  }
-
-  return lines.length > 0
-    ? lines.join('\\n')
-    : '(no long-term memories saved)';
-}
-
-async function sendNeroControlMessage(sock, jid, text) {
-  rememberNeroBotOutbound(jid, text);
-
-  const sentMessage = await sock.sendMessage(jid, { text });
-
-  if (sentMessage?.key?.id) {
-    botSentMessageIds.add(sentMessage.key.id);
-
-    setTimeout(() => {
-      botSentMessageIds.delete(sentMessage.key.id);
-    }, 5 * 60 * 1000);
-  }
-
-  return sentMessage;
-}
-
-loadNeroMemory();
 console.log('[Memory] Long-term memory loaded.');
 
 let neroMuted = false;
@@ -4458,7 +4295,7 @@ function neroAppendWebSources(
   return String(reply || '').trim();
 }
 
-async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSearch = null) {
+async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSearch = null, plan = {}) {
   const history = (conversations.get(jid) ?? []).slice(-12);
 
   const recent = history
@@ -4466,9 +4303,29 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSea
     .join('\n')
     .slice(-4500);
 
+  const memoryAssembly =
+    neroContextAssembler.assemble({
+      request: text,
+      plan,
+      history,
+      budgetChars:
+        plan.tier === 'strong'
+          ? 5000
+          : plan.tier === 'normal'
+            ? 3500
+            : 2500,
+      memoryScope: getNeroGroupMemoryScope(jid),
+      web: webSearch
+    });
+
   const longTermMemory =
-    String(formatNeroMemoryForPrompt(jid) || '(none)')
-      .slice(0, 2500);
+    memoryAssembly.items
+      .filter(item => item.kind === 'memory')
+      .map(item => '- ' + item.text)
+      .join('\n')
+      .slice(0, 2500) ||
+    '(no relevant long-term memories)';
+
 
   const groupRosterText = groupRoster?.length
     ? groupRoster.map(function (member) {
@@ -4484,6 +4341,10 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSea
 
   const boundedGroupRosterText =
     String(groupRosterText).slice(0, 3000);
+
+  if (memoryAssembly.failures.length) {
+    console.log('[NERO CONTEXT] Memory retrieval degraded:', JSON.stringify(memoryAssembly.failures));
+  }
 
   const webSearchBlock =
     webSearch?.results?.length
@@ -6593,29 +6454,6 @@ async function askGemini(
     .filter(Boolean)
     .join('\n');
 
-  const webSearch =
-    await neroMaybeWebSearch(
-      text,
-      jid
-    );
-
-  const prompt =
-    await buildPrompt(
-      jid,
-      sender,
-      promptText,
-      await neroGetGroupRoster(sock, jid),
-      senderId,
-      webSearch
-    );
-
-  const finish =
-    reply =>
-      neroAppendWebSources(
-        reply,
-        webSearch
-      );
-
   const selectedKey = getNeroSelectedModel(jid);
 
   const runtimeDecision =
@@ -6635,9 +6473,35 @@ async function askGemini(
       route: runtimeDecision.route.modelKey,
       source: runtimeDecision.route.source,
       planning: runtimeDecision.plan.planning,
-      webSearch: runtimeDecision.plan.needsWebSearch
+      memory: runtimeDecision.plan.memory,
+      webSearch: runtimeDecision.plan.web
     })
   );
+
+  const webSearch =
+    await neroMaybeWebSearch(
+      text,
+      jid
+    );
+
+  const prompt =
+    await buildPrompt(
+      jid,
+      sender,
+      promptText,
+      await neroGetGroupRoster(sock, jid),
+      senderId,
+      webSearch,
+      runtimeDecision.plan
+    );
+
+
+  const finish =
+    reply =>
+      neroAppendWebSources(
+        reply,
+        webSearch
+      );
 
   if (
     selectedKey === 'auto' &&
