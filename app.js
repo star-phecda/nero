@@ -8615,11 +8615,9 @@ async function startNero() {
                 (neroMuted
                   ? 'Nero is muted.'
                   : 'Nero is active.') +
-                '
-Runtime: ' +
+                '\nRuntime: ' +
                 runtimeProfile.name +
-                '
-Tier: ' +
+                '\nTier: ' +
                 runtimeProfile.modelTier
             });
             continue;
@@ -8647,12 +8645,9 @@ Tier: ' +
               sock,
               jid,
               mode === 'god'
-                ? '⚡ GOD MODE ACTIVATED.
-Tier: ' +
+                ? '⚡ GOD MODE ACTIVATED.\nTier: ' +
                     profile.modelTier.toUpperCase() +
-                    '
-Planning: ON
-Expanded context: ON'
+                    '\nPlanning: ON\nExpanded context: ON'
                 : 'NORMAL MODE RESTORED.'
             );
 
@@ -8676,19 +8671,13 @@ Expanded context: ON'
             await sendNeroControlMessage(
               sock,
               jid,
-              'Nero runtime
-
-' +
-              'Mode: ' + profile.name + '
-' +
-              'Tier: ' + profile.modelTier + '
-' +
+              'Nero runtime\n\n' +
+              'Mode: ' + profile.name + '\n' +
+              'Tier: ' + profile.modelTier + '\n' +
               'Planning: ' +
-              (profile.planning ? 'ON' : 'OFF') + '
-' +
+              (profile.planning ? 'ON' : 'OFF') + '\n' +
               'Expanded context: ' +
-              (profile.expandedContext ? 'ON' : 'OFF') + '
-' +
+              (profile.expandedContext ? 'ON' : 'OFF') + '\n' +
               'Capabilities: ' +
               neroRuntime.getCapabilities(jid).join(', ')
             );
