@@ -1,4 +1,5 @@
 import { handleNeroTriviaMessage } from './neroTrivia.js';
+import { neroAdvancedMath } from './neroMath.js';
 import { handleNeroTagAllMessage } from './neroTagAll.js';
 import fs from 'node:fs';
 import { createServer } from 'node:http';
@@ -6104,6 +6105,13 @@ function neroDeterministicReply(
     ).format(new Date());
   }
 
+  const advancedReply =
+    neroAdvancedMath(original);
+
+  if (advancedReply !== null) {
+    return advancedReply;
+  }
+
   let mathExpression = '';
 
   const mathMatch = original.match(
@@ -7998,10 +8006,28 @@ const masterMentioned = mentionedJids.some(jid =>
             neroDeterministicReply(jid, text);
 
           if (deterministicReply !== null) {
+            const deterministicPayload =
+              typeof deterministicReply === 'string'
+                ? { text: deterministicReply }
+                : {
+                    image: deterministicReply.image,
+                    mimetype:
+                      deterministicReply.mimetype ||
+                      'image/png',
+                    caption:
+                      deterministicReply.text || ''
+                  };
+
+            const deterministicHistoryText =
+              typeof deterministicReply === 'string'
+                ? deterministicReply
+                : deterministicReply.text ||
+                  '[graph]';
+
             const sentMessage =
               await sock.sendMessage(
                 jid,
-                { text: deterministicReply },
+                deterministicPayload,
                 { quoted: message }
               );
 
@@ -8020,12 +8046,12 @@ const masterMentioned = mentionedJids.some(jid =>
             addToHistory(
               jid,
               BOT_NAME,
-              deterministicReply
+              deterministicHistoryText
             );
 
             rememberNeroBotOutbound(
               jid,
-              deterministicReply
+              deterministicHistoryText
             );
 
             continue;
