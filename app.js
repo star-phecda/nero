@@ -7940,10 +7940,10 @@ async function startNero() {
         const recentAppend =
           type === 'append' &&
           messageTimestamp > 0 &&
-          (
-            messageTimestamp >= neroConnectionStartTime - 120 ||
-            Math.abs(nowSeconds - messageTimestamp) <= 24 * 60 * 60
-          );
+          // Only accept append events that were created at/after this
+          // Nero connection started. The previous 24-hour window allowed
+          // stale history to be replayed as if it were a live message.
+          messageTimestamp >= neroConnectionStartTime - 120;
 
         
         if (type !== 'notify' && !recentAppend) {
@@ -7974,18 +7974,6 @@ async function startNero() {
 
         const media = getNeroMedia(message);
         const text = getText(message)?.trim() || '';
-
-        if (media) {
-          console.log(
-            '[NERO MEDIA] Incoming ' +
-            media.kind +
-            ' from ' +
-            (message?.pushName || 'Unknown') +
-            ' (' +
-            media.mimeType +
-            ')'
-          );
-        }
 
         if (!text && !media) continue;
 
@@ -8697,6 +8685,20 @@ async function startNero() {
 
         // NERO GROUP FILTER
     if (!neroGroupAllowed(jid)) continue;
+
+    // Media logging happens only after the chat gate, so denied groups
+    // and stale/replayed messages cannot leak into the media pipeline.
+    if (media) {
+      console.log(
+        '[NERO MEDIA] Incoming ' +
+        media.kind +
+        ' from ' +
+        (message?.pushName || 'Unknown') +
+        ' (' +
+        media.mimeType +
+        ')'
+      );
+    }
 
     // Nero does not respond to anything while muted.
         if (neroMuted) continue;
