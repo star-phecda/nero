@@ -7898,11 +7898,17 @@ async function startNero() {
           messageTimestamp
         );
 
+        const normalizedContent =
+          getNeroMessageContent(message) || {};
+
+        // Reply/mention metadata can live on the actual media message,
+        // including stickerMessage, rather than on a text wrapper.
         const contextInfo =
-          message.message?.extendedTextMessage?.contextInfo ||
-          message.message?.imageMessage?.contextInfo ||
-          message.message?.videoMessage?.contextInfo ||
-          message.message?.documentMessage?.contextInfo ||
+          normalizedContent?.extendedTextMessage?.contextInfo ||
+          normalizedContent?.imageMessage?.contextInfo ||
+          normalizedContent?.videoMessage?.contextInfo ||
+          normalizedContent?.documentMessage?.contextInfo ||
+          normalizedContent?.stickerMessage?.contextInfo ||
           {};
 
         const mentionedJids = contextInfo.mentionedJid || [];
@@ -8932,15 +8938,22 @@ const masterMentioned = mentionedJids.some(jid =>
         // In DMs, Nero only responds when explicitly prompted.
         // A prompt is saying/mentioning "Nero" or replying to Nero.
         // Group behavior remains unchanged.
-        // Stickers are self-contained visual messages: there is no text
-        // inside them on which the normal "say Nero / reply / mention"
-        // trigger can rely. Treat a sticker as an explicit conversational
-        // input so Nero can actually inspect and react to it.
         const isStickerMedia =
           media?.kind === 'sticker';
 
+        // Stickers obey the same group trigger rules as ordinary messages.
+        // A sticker from Master alone is not a trigger.
         const shouldRespond = isStickerMedia
-          ? true
+          ? (
+              isGroup
+                ? (
+                    RESPOND_TO_ALL_GROUP_MESSAGES ||
+                    masterMentioned ||
+                    repliedToMaster ||
+                    saidNero
+                  )
+                : true
+            )
           : media
             ? (
                 isGroup
