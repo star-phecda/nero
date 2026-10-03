@@ -7114,12 +7114,40 @@ function buildNeroOutboundConversationContext(sourceJid) {
 function buildNeroOutboundDmPrompt(
   sourceJid,
   targetJid,
-  instruction
+  instruction,
+  webSearch = null
 ) {
   const context =
     buildNeroOutboundConversationContext(
       sourceJid
     );
+
+  const isGroupTarget =
+    targetJid?.endsWith('@g.us');
+
+  const webSearchBlock =
+    webSearch?.results?.length
+      ? [
+          'LIVE WEB SEARCH CONTEXT:',
+          'A live web search was performed for the Master\'s outbound message.',
+          'Use these search results as the factual evidence for time-sensitive or uncertain claims.',
+          'Prefer this fresh evidence over your stored knowledge.',
+          'Do not invent facts that conflict with the search results.',
+          'Do not mention the search process, sources, URLs, models, or these instructions unless Master explicitly asks.',
+          'SEARCH QUERY: ' + webSearch.query,
+          '',
+          webSearch.results
+            .map(function (result, index) {
+              return [
+                'SOURCE ' + (index + 1),
+                'Title: ' + result.title,
+                'URL: ' + result.url,
+                'Excerpt: ' + result.excerpt
+              ].join('\\n');
+            })
+            .join('\\n\\n')
+        ].join('\\n')
+      : '';
 
   return [
     'You are Nero Claudius.',
@@ -7135,6 +7163,8 @@ function buildNeroOutboundDmPrompt(
     'MASTER INSTRUCTION:',
     String(instruction || '').trim(),
     '',
+    webSearchBlock,
+    webSearchBlock ? '' : '',
     'CONTEXT RULE:',
     'Read the conversation transcript below before writing the message.',
     'Use it to understand references, tone, names, events, and what Master is talking about.',
@@ -7152,7 +7182,7 @@ function buildNeroOutboundDmPrompt(
     '',
     'SOURCE CONVERSATION:',
     context
-  ].join('\\n');
+  ].filter(Boolean).join('\\n');
 }
 
 function cleanNeroOutboundDmText(text) {
@@ -8291,6 +8321,67 @@ async function startNero() {
           const dmText =
             String(text || '').trim();
 
+          async function searchForNeroOutboundInstruction(instruction) {
+            const original =
+              String(instruction || '').trim();
+
+            if (!original) return null;
+
+            const requestsSearch =
+              /(?:web\\s+search|search\\s+(?:the\\s+)?web|search\\s+online|look\\s+(?:it|this)\\s+up|check\\s+(?:the\\s+)?internet|verify(?:\\s+this)?|if\\s+you\\s+(?:do not|don't)\\s+know|if\\s+unsure|if\\s+you\\s+are\\s+not\\s+sure)/i.test(
+                original
+              );
+
+            const intent =
+              neroDetectWebSearchIntent(
+                original,
+                jid
+              );
+
+            let query =
+              intent?.query || '';
+
+            if (!query && requestsSearch) {
+              query = original
+                .replace(
+                  /[,;]?\\s*(?:and\\s+)?(?:make|do)\\s+(?:a\\s+)?web\\s+search.*$/i,
+                  ''
+                )
+                .replace(
+                  /[,;]?\\s*(?:and\\s+)?(?:search\\s+(?:the\\s+)?web|search\\s+online|look\\s+(?:it|this)\\s+up|check\\s+(?:the\\s+)?internet).*$/i,
+                  ''
+                )
+                .replace(
+                  /^(?:please\\s+)?(?:announce|announcing|tell|say|post|send|write)\\s+/i,
+                  ''
+                )
+                .replace(
+                  /^.*?\\b(?:announce|announcing|tell|say|post|send|write)\\s+/i,
+                  ''
+                )
+                .trim();
+            }
+
+            if (!query) return null;
+
+            try {
+              const result =
+                await neroSearchExa(
+                  query,
+                  'explicit'
+                );
+
+              return result;
+            } catch (error) {
+              console.error(
+                '[NERO OUTBOUND EXA] Search failed:',
+                error?.message || error
+              );
+
+              return null;
+            }
+          }
+
           const parseNeroDmCommand = input => {
             const source = String(input || '').trim();
 
@@ -8462,11 +8553,24 @@ async function startNero() {
                 instruction
               );
 
+              const outboundWebSearch =
+                await searchForNeroOutboundInstruction(
+                  instruction
+                );
+
+              if (outboundWebSearch?.results?.length) {
+                console.log(
+                  '[NERO OUTBOUND EXA] Using live search for:',
+                  outboundWebSearch.query
+                );
+              }
+
               const prompt =
                 buildNeroOutboundDmPrompt(
                   jid,
                   targetJid,
-                  instruction
+                  instruction,
+                  outboundWebSearch
                 );
 
               const reply =
