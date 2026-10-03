@@ -58,11 +58,22 @@ export class NeroModelRouter {
   }
 
   route({
+    plan = null,
     tier = 'normal',
     mode = 'normal',
     media = null,
     selectedModel = 'auto'
   } = {}) {
+    const requestedTier =
+      plan?.tier ||
+      tier ||
+      'normal';
+
+    const deepReasoning =
+      plan?.deep_reasoning === true;
+
+    const needsVerification =
+      plan?.verification === true;
     if (
       selectedModel &&
       selectedModel !== 'auto' &&
@@ -88,7 +99,8 @@ export class NeroModelRouter {
 
     if (
       mode === 'god' ||
-      tier === 'strong'
+      requestedTier === 'strong' ||
+      deepReasoning
     ) {
       return {
         modelKey: this.firstAvailable(
@@ -98,11 +110,13 @@ export class NeroModelRouter {
         source:
           mode === 'god'
             ? 'god-runtime'
-            : 'task-router'
+            : needsVerification
+              ? 'verified-strong-task'
+              : 'task-router'
       };
     }
 
-    if (tier === 'fast') {
+    if (requestedTier === 'fast') {
       return {
         modelKey: this.firstAvailable(
           FAST_PREFERENCES

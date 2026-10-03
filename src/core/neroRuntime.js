@@ -165,7 +165,16 @@ export class NeroRuntime {
         this.getProfile(chatId),
       ...this.planner.plan({
         ...request,
-        mode
+        mode,
+        context: {
+          ...(request.context || {}),
+          canUseMemory:
+            this.can(chatId, 'memory_read'),
+          canUseWebSearch:
+            this.can(chatId, 'web_search'),
+          canUseToolSelection:
+            this.can(chatId, 'tool_selection')
+        }
       })
     };
   }
@@ -181,6 +190,7 @@ export class NeroRuntime {
       plan,
       route:
         this.modelRouter.route({
+          plan,
           tier: plan.tier,
           mode: plan.mode,
           media:
