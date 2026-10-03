@@ -4323,33 +4323,7 @@ function neroAppendWebSources(
   reply,
   webSearch
 ) {
-  const output =
-    String(reply || '').trim();
-
-  if (
-    !webSearch?.results?.length
-  ) {
-    return output;
-  }
-
-  const sources =
-    webSearch.results
-      .slice(0, 3)
-      .map(
-        (source, index) =>
-          (index + 1) +
-          '. ' +
-          source.title +
-          '\n' +
-          source.url
-      )
-      .join('\n');
-
-  return (
-    output +
-    '\n\nSources:\n' +
-    sources
-  ).trim();
+  return String(reply || '').trim();
 }
 
 async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSearch = null) {
@@ -4387,7 +4361,7 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSea
           'Use these source excerpts as the factual web evidence for this answer.',
           'Prefer this fresh evidence over stale memory when the question is time-sensitive.',
           'Do not invent, alter, or cite URLs that are not present below.',
-          'The application will append the source URLs after your reply; do not add a Sources section yourself.',
+          'Do not add a Sources section or list source URLs unless Master explicitly asks for them.',
           'SEARCH QUERY: ' + webSearch.query,
           '',
           webSearch.results
