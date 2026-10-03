@@ -6993,6 +6993,88 @@ async function resolveNeroOutboundGroup(sock, requestedName) {
   return null;
 }
 
+async function sendNeroOutboundTaggedGroupMessage(
+  sock,
+  jid,
+  text,
+  replyToMessage = null
+) {
+  const metadata =
+    await sock.groupMetadata(jid);
+
+  const participants =
+    metadata?.participants || [];
+
+  const botId =
+    sock.user?.id
+      ? String(sock.user.id).split(':')[0]
+      : '';
+
+  const targets =
+    participants
+      .map(participant => participant?.id)
+      .filter(Boolean)
+      .filter(id => String(id).split(':')[0] !== botId);
+
+  if (!targets.length) {
+    return await sock.sendMessage(
+      jid,
+      { text },
+      replyToMessage
+        ? { quoted: replyToMessage }
+        : undefined
+    );
+  }
+
+  const chunks = [];
+
+  for (let i = 0; i < targets.length; i += 40) {
+    chunks.push(targets.slice(i, i + 40));
+  }
+
+  let firstMessage = null;
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const group = chunks[index];
+
+    const mentions =
+      group.map(
+        id => '@' + String(id).split('@')[0]
+      );
+
+    const payloadText =
+      index === 0
+        ? String(text || '').trim() +
+          '\n\n' +
+          mentions.join(' ')
+        : mentions.join(' ');
+
+    const sent =
+      await sock.sendMessage(
+        jid,
+        {
+          text: payloadText,
+          mentions: group
+        },
+        index === 0 && replyToMessage
+          ? { quoted: replyToMessage }
+          : undefined
+      );
+
+    if (!firstMessage) {
+      firstMessage = sent;
+    }
+
+    if (index < chunks.length - 1) {
+      await new Promise(resolve =>
+        setTimeout(resolve, 350)
+      );
+    }
+  }
+
+  return firstMessage;
+}
+
 function buildNeroOutboundConversationContext(sourceJid) {
   if (sourceJid?.endsWith('@g.us')) {
     const history = getNeroGroupHistory(sourceJid).slice(-120);
@@ -8231,13 +8313,14 @@ async function startNero() {
             // saying renzo is short. Make it seem like it's you.
             let match =
               body.match(
-                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+["“]([^"”]+)["”]\s+(?:saying|that)\s+([\s\S]+)$/i
+                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+["“]([^"”]+)["”]\s+(?:(?:saying|that)|(?:and\s+say(?:\s+that)?))\s+([\s\S]+)$/i
               );
 
             if (match) {
               return {
                 groupName: match[1].trim(),
-                instruction: match[2].trim()
+                instruction: match[2].trim(),
+                tagEveryone: /\band\s+say(?:\s+that)?\b/i.test(body)
               };
             }
 
@@ -8245,7 +8328,7 @@ async function startNero() {
             // clearly separates the target from the message.
             match =
               body.match(
-                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+(.+?)\s+(?:saying|that)\s+([\s\S]+)$/i
+                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+(.+?)\s+(?:(?:saying|that)|(?:and\s+say(?:\s+that)?))\s+([\s\S]+)$/i
               );
 
             if (match) {
@@ -8253,7 +8336,8 @@ async function startNero() {
                 groupName: match[1]
                   .trim()
                   .replace(/^["“]|["”]$/g, ''),
-                instruction: match[2].trim()
+                instruction: match[2].trim(),
+                tagEveryone: /\band\s+say(?:\s+that)?\b/i.test(body)
               };
             }
 
@@ -8405,10 +8489,17 @@ async function startNero() {
               ).catch(() => {});
 
               const sentMessage =
-                await sock.sendMessage(
-                  targetJid,
-                  { text: reply }
-                );
+                dmRequest.groupName && dmRequest.tagEveryone
+                  ? await sendNeroOutboundTaggedGroupMessage(
+                      sock,
+                      targetJid,
+                      reply,
+                      message
+                    )
+                  : await sock.sendMessage(
+                      targetJid,
+                      { text: reply }
+                    );
 
               await sock.sendPresenceUpdate(
                 'paused',
@@ -8443,6 +8534,11 @@ async function startNero() {
                 jid,
                 '✅ Sent the message to ' +
                 targetLabel +
+                (
+                  dmRequest.groupName && dmRequest.tagEveryone
+                    ? ' and tagged everyone'
+                    : ''
+                ) +
                 '.\n\n' +
                 reply
               );
