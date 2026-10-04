@@ -37,6 +37,9 @@ const PHASE4_TIME_BUDGET_MS =
 const STRONG_PATTERN =
   /(?:debug|debugging|code|coding|program|programming|architecture|design|research|analyze|analyse|compare|comparison|reason|reasoning|prove|proof|derive|calculate|solve|strategy|strategize|complex|difficult|why|trade-?off|implementation|implement|investigate|diagnose|root cause)/i;
 
+const DELEGATION_RESEARCH_PATTERN =
+  /(?:research|compare|comparison|survey|alternatives?|options?|trade-?offs?|pros?\s*(?:and|&)\s*cons?|multiple\s+sources?|literature|landscape)/i;
+
 function hasReferenceToPriorContext(input) {
   return (
     HISTORY_PATTERN.test(input) ||
@@ -86,6 +89,15 @@ export class NeroPlanner {
     const needsDeepReasoning =
       mode === 'god' ||
       needsStrongReasoning;
+
+    const needsDelegation =
+      !hasMedia &&
+      needsStrongReasoning &&
+      DELEGATION_RESEARCH_PATTERN.test(input) &&
+      (
+        explicitWeb ||
+        /\b(?:current|latest|multiple|three|four|five|sources?|options?|alternatives?)\b/i.test(input)
+      );
 
     const needsVerification =
       (
@@ -170,9 +182,40 @@ export class NeroPlanner {
             ? PHASE4_MAX_RECOVERY_ATTEMPTS
             : 0,
         time_budget_ms:
-          PHASE4_TIME_BUDGET_MS
+          PHASE4_TIME_BUDGET_MS,
+        max_total_tokens:
+          Number(process.env.NERO_PHASE4_MAX_TOTAL_TOKENS || 12000)
       },
-      delegation: false,
+      delegation: needsDelegation,
+      delegationContract: needsDelegation
+        ? {
+            enabled: true,
+            strategy: 'parallel-research-analysis-critique',
+            maxWorkers: 3,
+            workerTimeoutMs: 15000,
+            totalWallTimeMs: PHASE4_TIME_BUDGET_MS,
+            totalTokenBudget: 12000,
+            maxTotalResultChars: 12000,
+            maxResultCharsPerWorker: 4000,
+            contextChars: 7000,
+            workers: [
+              { role: 'web', maxTokens: 4000 },
+              { role: 'analyst', maxTokens: 4000 },
+              { role: 'critic', maxTokens: 4000 }
+            ],
+            allowRecursiveDelegation: false,
+            sideEffects: false
+          }
+        : {
+            enabled: false,
+            strategy: 'none',
+            maxWorkers: 0,
+            totalWallTimeMs: 0,
+            totalTokenBudget: 0,
+            workers: [],
+            allowRecursiveDelegation: false,
+            sideEffects: false
+          },
       context: contextNeeds,
       execution,
       planning:

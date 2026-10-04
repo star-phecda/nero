@@ -5,7 +5,8 @@ const SAFE_CAPABILITIES = Object.freeze([
   'memory_read',
   'memory_write',
   'model_routing',
-  'web_search'
+  'web_search',
+  'delegation'
 ]);
 
 const GOD_CAPABILITIES = Object.freeze([
