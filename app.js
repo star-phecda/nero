@@ -103,6 +103,13 @@ const conversations = new Map();
 const lastResponseTime = new Map();
 const processedMessageIds = new Set();
 let neroConnectionStartTime = 0;
+
+// Keep exactly one live Baileys socket. Overlapping sockets can race the
+// same Signal key store and produce MessageCounterError/Bad MAC failures.
+let neroActiveSocket = null;
+let neroReconnectTimer = null;
+let neroReconnectInFlight = false;
+let neroStopping = false;
 const botSentMessageIds = new Set();
 
 const recentNeroBotOutbound = new Map();
@@ -7699,7 +7706,21 @@ async function askNeroRecap(
 loadNeroGroupHistory();
 
 async function startNero() {
+  // Never start a second socket while the current one is alive or a reconnect
+  // is already being scheduled. This preserves the existing auth/session state.
+  if (neroActiveSocket) {
+    console.log('[NERO AUTH] Existing WhatsApp socket is still active; skipping duplicate start.');
+    return neroActiveSocket;
+  }
+
+  if (neroReconnectInFlight) {
+    console.log('[NERO AUTH] Reconnect already in flight; skipping duplicate start.');
+    return null;
+  }
+
+  neroReconnectInFlight = true;
   neroConnectionStartTime = Math.floor(Date.now() / 1000);
+
   const { state, saveCreds } =
     await useMultiFileAuthState(NERO_AUTH_DIR);
 
@@ -7722,8 +7743,8 @@ async function startNero() {
     shouldSyncHistoryMessage: () => NERO_SYNC_FULL_HISTORY,
   });
 
-  sock.ev.on('messages.upsert', ({ messages, type }) => {
-      });
+  neroActiveSocket = sock;
+  neroReconnectInFlight = false;
 
   if (!state.creds.registered) {
     const pairingNumber = String(process.env.NERO_PAIRING_NUMBER || '').replace(/\\D/g, '');
@@ -7744,7 +7765,15 @@ async function startNero() {
     }
   }
 
-  sock.ev.on('creds.update', saveCreds);
+  // Signal session keys rotate during normal send/receive operations.
+  // Persist every update promptly; do not reset or replace the auth folder here.
+  sock.ev.on('creds.update', async () => {
+    try {
+      await saveCreds();
+    } catch (error) {
+      console.error('[NERO AUTH] Failed to persist updated Signal credentials:', error?.message || error);
+    }
+  });
 
   sock.ev.on(
     'messaging-history.set',
@@ -7844,15 +7873,43 @@ async function startNero() {
       const reconnect =
         statusCode !== DisconnectReason.loggedOut;
 
-      console.log(`WhatsApp connection closed (${statusCode ?? 'unknown'}).`);
+      console.log(
+        '[NERO AUTH] WhatsApp connection closed (' +
+        (statusCode ?? 'unknown') +
+        ').'
+      );
 
-      if (reconnect) {
-        console.log('Reconnecting in 3 seconds...');
-        await sleep(3000);
-        startNero().catch(err => console.error('Reconnect failed:', err));
+      // Only the currently-owned socket may schedule a reconnect. A stale
+      // socket must never create a second auth/key-store writer.
+      if (neroActiveSocket === sock) {
+        neroActiveSocket = null;
+      }
+
+      if (reconnect && !neroStopping) {
+        if (neroReconnectTimer) {
+          clearTimeout(neroReconnectTimer);
+        }
+
+        console.log(
+          '[NERO AUTH] Keeping existing auth state intact. Reconnecting in 3 seconds...'
+        );
+
+        neroReconnectTimer = setTimeout(() => {
+          neroReconnectTimer = null;
+          startNero().catch(err => {
+            neroReconnectInFlight = false;
+            console.error(
+              '[NERO AUTH] Reconnect failed:',
+              err?.message || err
+            );
+          });
+        }, 3000);
       } else {
+        neroReconnectInFlight = false;
         console.log('Nero was logged out.');
-        console.log('To pair again, delete auth_info_baileys and run npm start.');
+        console.log(
+          'Existing auth state was NOT deleted. Re-pair only if WhatsApp actually revoked the session.'
+        );
       }
     }
   });
@@ -9523,6 +9580,8 @@ const masterMentioned = mentionedJids.some(jid =>
       }
     }
   });
+
+  return sock;
 }
 
 console.log('\nStarting Nero...\n');
