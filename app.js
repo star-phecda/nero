@@ -5906,6 +5906,15 @@ async function askNeroSelectedModel(
   }
 
   switch (key) {
+    case 'gemini_worker':
+      return await askGeminiDirect(
+        prompt,
+        selected.model,
+        started,
+        null,
+        options
+      );
+
     case 'gemini_primary':
     case 'gemini_fallback':
       return await askGeminiDirect(

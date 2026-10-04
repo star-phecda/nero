@@ -143,7 +143,7 @@ export class NeroWorker {
       let raw='',sources=[];
       let evidence = '';
 
-      if(this.role==='web'){
+      if(this.role==='web' || this.role==='web researcher'){
         if(!this.can('web_search'))return this.result('failed','',['web-search-not-permitted'],started);
         if(!this.webSearch)return this.result('failed','',['web-search-unavailable'],started);
         const web=await this.timed(()=>this.webSearch(this.task,{signal:controller.signal,mode:'delegation'}),controller);

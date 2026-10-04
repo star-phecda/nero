@@ -107,4 +107,29 @@ const appSource = await import('node:fs').then(fs => fs.readFileSync('/mnt/files
 assert.match(appSource, /key: 'gemini_worker'/);
 assert.match(appSource, /internal: true/);
 assert.match(appSource, /!model\.internal/);
+// Regression: the internal worker catalog must have a real model dispatch path.
+assert.match(appSource, /case 'gemini_worker':/);
+assert.match(appSource, /case 'gemini_worker':[\s\S]*?return await askGeminiDirect\(/);
+
+// Regression: the delegator's web-research role must actually invoke web search.
+let webCalls = 0;
+const webWorker = new NeroWorker({
+  workerId: 'web',
+  role: 'web researcher',
+  task: 'Find evidence.',
+  permissions: { web_search: true },
+  webSearch: async () => {
+    webCalls++;
+    return { results: [{ title: 'Source', excerpt: 'Evidence', url: 'https://example.com' }] };
+  },
+  runModel: async () => JSON.stringify({
+    summary: 'ok',
+    findings: [],
+    uncertainties: []
+  })
+});
+const webWorkerResult = await webWorker.run();
+assert.equal(webWorkerResult.status, 'completed');
+assert.equal(webCalls, 1);
+
 console.log('Phase 5.1 visibility gate: PASS');
