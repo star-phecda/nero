@@ -90,14 +90,14 @@ export class NeroPlanner {
       mode === 'god' ||
       needsStrongReasoning;
 
+    // Explicit research/comparison requests are already delegation opt-in.
+    // Do not require a second "search the web/current/multiple-sources" phrase:
+    // the user's research request itself is the delegation signal. Media tasks
+    // remain excluded.
     const needsDelegation =
       !hasMedia &&
       needsStrongReasoning &&
-      DELEGATION_RESEARCH_PATTERN.test(input) &&
-      (
-        explicitWeb ||
-        /\b(?:current|latest|multiple|three|four|five|sources?|options?|alternatives?)\b/i.test(input)
-      );
+      DELEGATION_RESEARCH_PATTERN.test(input);
 
     const needsVerification =
       (
