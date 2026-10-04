@@ -23,7 +23,7 @@ export function buildNeroSocialActionInstructions() {
     'Someone loses a playful exchange and says “shit” → [NERO_REACT:💅]',
     'Someone gives a painfully boring comeback → [NERO_REACT:🥱]',
     'These are behavioral examples. Choose naturally; do not copy them mechanically.'
-  ].join('\\n');
+  ].join('\n');
 }
 
 export function parseNeroSocialAction(raw) {

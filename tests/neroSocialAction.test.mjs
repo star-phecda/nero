@@ -11,4 +11,6 @@ assert.equal(parseNeroSocialAction('[NERO_REACT:🙄]\nmore text').action, 'repl
 assert.ok(NERO_REACTION_EMOJIS.has('🙄'));
 assert.match(buildNeroSocialActionInstructions(), /REACT/);
 assert.match(buildNeroSocialActionInstructions(), /SILENT/);
+assert.ok(buildNeroSocialActionInstructions().includes('\n'));
+assert.equal(buildNeroSocialActionInstructions().includes('\\n'), false);
 console.log('Social reaction unit gate: PASS');
