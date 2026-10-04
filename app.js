@@ -31,6 +31,7 @@ import { NeroVerifier } from './src/core/neroVerifier.js';
 import { NeroDelegator } from './src/core/neroDelegator.js';
 import {
   buildNeroSocialActionInstructions,
+  getNeroSocialActionGuard,
   parseNeroSocialAction
 } from './src/core/neroSocialAction.js';
 
@@ -4484,8 +4485,19 @@ async function buildPrompt(
   ]
     .filter(Boolean);
 
-  const socialActionInstructions =
-    buildNeroSocialActionInstructions();
+  const socialActionInstructions = [
+    buildNeroSocialActionInstructions(),
+    phase4.forceReply
+      ? [
+          'SOCIAL ACTION OVERRIDE:',
+          'The previous draft chose a social action that was not permitted.',
+          'For this recovery, you MUST return a normal text reply.',
+          'Do not output REACT or SILENT markers.'
+        ].join('\n')
+      : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 
   const prompt = [
     ...phase4PromptBlocks,
@@ -6806,8 +6818,102 @@ async function askGemini(
       const socialAction =
         parseNeroSocialAction(reply);
 
-      if (socialAction.action === 'react' || socialAction.action === 'silent') {
+      const senderRole =
+        sender === 'Master'
+          ? 'Master'
+          : isNeroDawnId(senderId)
+            ? 'Dawn'
+            : 'Group member';
+
+      if (
+        (socialAction.action === 'react' || socialAction.action === 'silent') &&
+        !effectivePlan.verification
+      ) {
         return socialAction;
+      }
+
+      if (socialAction.action === 'react' || socialAction.action === 'silent') {
+        const socialActionGuard =
+          getNeroSocialActionGuard({
+            request: text,
+            senderRole,
+            plan: effectivePlan
+          });
+
+        const socialVerdict =
+          neroVerifier.verify({
+            request: text,
+            answer: '',
+            plan: effectivePlan,
+            context: {
+              ...promptBundle.context,
+              operation: phase4.operation || null,
+              socialAction,
+              senderRole,
+              socialActionAllowed: socialActionGuard.allowed
+            }
+          });
+
+        console.log(
+          '[NERO PHASE4] ' +
+          JSON.stringify({
+            attempt:
+              Number(phase4.reasoningAttempt || 1),
+            recovery:
+              Number(phase4.recoveryAttempts || 0),
+            pass: socialVerdict.pass,
+            reason: socialVerdict.reason
+          })
+        );
+
+        if (socialVerdict.pass) {
+          return socialAction;
+        }
+
+        const actions =
+          neroVerifier.recoveryActions(
+            socialVerdict
+          );
+        const reasoningLimits =
+          effectivePlan.reasoning || {};
+        const reasoningAttempt =
+          Number(phase4.reasoningAttempt || 1);
+        const recoveryAttempts =
+          Number(phase4.recoveryAttempts || 0);
+        const elapsed =
+          Date.now() - phase4StartedAt;
+
+        if (
+          socialVerdict.recoverable &&
+          recoveryAttempts < Number(reasoningLimits.max_recovery_attempts || 0) &&
+          reasoningAttempt < Number(reasoningLimits.max_reasoning_attempts || 1) &&
+          elapsed < Number(reasoningLimits.time_budget_ms || 45000)
+        ) {
+          return askGemini(
+            sock,
+            jid,
+            sender,
+            text,
+            senderId,
+            media,
+            {
+              ...phase4,
+              startedAt: phase4StartedAt,
+              reasoningAttempt: reasoningAttempt + 1,
+              recoveryAttempts: recoveryAttempts + 1,
+              recoveryAttempt: recoveryAttempts + 1,
+              actions,
+              forceReply: actions.includes('force_reply'),
+              expandHistory: actions.includes('expand_history'),
+              refreshWeb: actions.includes('refresh_web')
+            }
+          );
+        }
+
+        return {
+          action: 'reply',
+          text: neroVerifier.uncertaintyReply()
+        };
       }
 
       const answer =

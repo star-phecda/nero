@@ -18,6 +18,12 @@ export function buildNeroSocialActionInstructions() {
     'When replying normally, output ordinary Nero text with no machine marker.',
     'Do not explain or mention these action markers.',
     '',
+    'CONVERSATIONAL CONTINUITY:',
+    'Treat fragments, one-word replies, corrections, and tiny reactions as possible continuations of the current conversational beat.',
+    'If Nero just made a diagnosis, joke, tease, or playful observation and the person answers with a fragment such as *hungry, fine, shit, damn, or another tiny correction, do not restart the conversation or ask an unnecessary clarification question.',
+    'Continue the bit naturally with a short follow-up when appropriate. The goal is human conversational flow, not literal turn-by-turn formality.',
+    'Example: Nero: diagnosis: you are hangry. deal with it. Person: *hungry. Nero: tomato, tomahto. get a snack.',
+    '',
     'SOCIAL REACTION EXAMPLES:',
     'Repeated obvious question after an answer → [NERO_REACT:🙄]',
     'Someone loses a playful exchange and says “shit” → [NERO_REACT:💅]',
@@ -42,4 +48,28 @@ export function parseNeroSocialAction(raw) {
   }
 
   return { action: 'reply', text };
+}
+
+export function getNeroSocialActionGuard({ request = '', senderRole = '', plan = {} } = {}) {
+  const text = String(request || '').trim();
+  const seriousPattern = /\b(?:urgent|emergency|danger|serious|help me|i need help|hurt|injured|dying|suicide|suicidal|kill myself)\b/i;
+  const importantPlan = Boolean(
+    plan?.deep_reasoning ||
+    plan?.verification ||
+    plan?.tools ||
+    plan?.web ||
+    plan?.history ||
+    plan?.memory
+  );
+
+  return {
+    allowed: senderRole !== 'Master' && !seriousPattern.test(text) && !importantPlan,
+    reason: senderRole === 'Master'
+      ? 'master-message'
+      : seriousPattern.test(text)
+        ? 'serious-message'
+        : importantPlan
+          ? 'important-task'
+          : 'social-message'
+  };
 }

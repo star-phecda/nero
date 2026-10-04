@@ -80,6 +80,51 @@ export class NeroVerifier {
     const reply = clean(answer);
     const issues = [];
 
+    const socialAction = context?.socialAction;
+    if (socialAction) {
+      const isReaction = socialAction.action === 'react';
+      const isSilent = socialAction.action === 'silent';
+      const allowedReactions = new Set([
+        '🙄', '💅', '🥱', '😂', '😭', '🤨', '😐', '👏', '❤️', '💀', '👍', '😌'
+      ]);
+
+      if (!isReaction && !isSilent) {
+        issues.push({
+          code: 'invalid-social-action',
+          severity: 'high',
+          message: 'The social action type is invalid.'
+        });
+      }
+
+      if (isReaction && !allowedReactions.has(String(socialAction.emoji || ''))) {
+        issues.push({
+          code: 'invalid-social-action',
+          severity: 'high',
+          message: 'The reaction emoji is outside Nero\'s curated vocabulary.'
+        });
+      }
+
+      if (context.socialActionAllowed === false || context.senderRole === 'Master') {
+        issues.push({
+          code: 'social-action-prohibited',
+          severity: 'high',
+          message: 'This message requires a normal textual response.'
+        });
+      }
+
+      if (!issues.length) {
+        return {
+          pass: true,
+          verified: true,
+          uncertain: false,
+          recoverable: false,
+          issues: [],
+          score: 1,
+          reason: 'verified-social-action'
+        };
+      }
+    }
+
     if (!reply) {
       issues.push({
         code: 'empty-answer',
@@ -281,6 +326,10 @@ export class NeroVerifier {
       codes.has('uncertain-result')
     ) {
       actions.push('force_memory');
+    }
+
+    if (codes.has('social-action-prohibited') || codes.has('invalid-social-action')) {
+      actions.push('force_reply');
     }
 
     if (
