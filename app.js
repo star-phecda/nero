@@ -256,6 +256,15 @@ const NERO_MODEL_CATALOG = [
     media: '📝 text only'
   },
   {
+    key: 'openrouter_venice_uncensored',
+    provider: 'OpenRouter',
+    label: 'Venice Uncensored',
+    model:
+      process.env.NERO_OPENROUTER_VENICE_MODEL ||
+      'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+    media: '📝 text only'
+  },
+  {
     key: 'nvidia_nemotron',
     provider: 'NVIDIA NIM',
     label: 'Nemotron 3 Super 120B',
@@ -5987,6 +5996,7 @@ async function askNeroSelectedModel(
       );
 
     case 'openrouter_nemotron':
+    case 'openrouter_venice_uncensored':
       return await askOpenRouter(prompt, started, selected.model);
 
     case 'nvidia_nemotron':
