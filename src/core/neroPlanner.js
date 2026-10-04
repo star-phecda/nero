@@ -16,6 +16,24 @@ const PROJECT_PATTERN =
 const TOOL_PATTERN =
   /(?:inspect|check|look at|read|fetch|search|find|test|verify|run|execute|use the|github|repo(?:sitory)?|whatsapp|baileys|termux|code|file|logs?|commit)/i;
 
+const PHASE4_MAX_REASONING_ATTEMPTS =
+  Math.max(
+    1,
+    Number(process.env.NERO_PHASE4_MAX_REASONING_ATTEMPTS || 2)
+  );
+
+const PHASE4_MAX_RECOVERY_ATTEMPTS =
+  Math.max(
+    0,
+    Number(process.env.NERO_PHASE4_MAX_RECOVERY_ATTEMPTS || 1)
+  );
+
+const PHASE4_TIME_BUDGET_MS =
+  Math.max(
+    5000,
+    Number(process.env.NERO_PHASE4_TIME_BUDGET_MS || 45000)
+  );
+
 const STRONG_PATTERN =
   /(?:debug|debugging|code|coding|program|programming|architecture|design|research|analyze|analyse|compare|comparison|reason|reasoning|prove|proof|derive|calculate|solve|strategy|strategize|complex|difficult|why|trade-?off|implementation|implement|investigate|diagnose|root cause)/i;
 
@@ -123,10 +141,13 @@ export class NeroPlanner {
     if (needsWebSearch) execution.push('web_search');
     execution.push(
       needsDeepReasoning
-        ? 'deep_reason'
+        ? 'reason'
         : 'answer'
     );
-    if (needsVerification) execution.push('verify');
+    if (needsVerification) {
+      execution.push('verify');
+      execution.push('recover');
+    }
 
     return {
       tier,
@@ -138,6 +159,19 @@ export class NeroPlanner {
       toolset: tools,
       deep_reasoning: needsDeepReasoning,
       verification: needsVerification,
+      recovery: needsVerification,
+      reasoning: {
+        max_reasoning_attempts:
+          needsDeepReasoning
+            ? PHASE4_MAX_REASONING_ATTEMPTS
+            : 1,
+        max_recovery_attempts:
+          needsVerification
+            ? PHASE4_MAX_RECOVERY_ATTEMPTS
+            : 0,
+        time_budget_ms:
+          PHASE4_TIME_BUDGET_MS
+      },
       delegation: false,
       context: contextNeeds,
       execution,

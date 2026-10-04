@@ -27,6 +27,7 @@ import { GoogleGenAI } from '@google/genai';
 import { NeroRuntime } from './src/core/neroRuntime.js';
 import { NeroMemoryService } from './src/core/neroMemory.js';
 import { NeroContextAssembler } from './src/core/neroContextAssembler.js';
+import { NeroVerifier } from './src/core/neroVerifier.js';
 
 const MODEL =
   process.env.NERO_PRIMARY_MODEL || 'gemini-3.5-flash-lite';
@@ -764,6 +765,8 @@ function isNeroDawnMessage(message) { return neroDawnCandidates(message).some(is
 
 const neroMemory = new NeroMemoryService({ filePath: NERO_MEMORY_FILE });
 const neroContextAssembler = new NeroContextAssembler({ memory: neroMemory, defaultBudgetChars: 3000 });
+
+const neroVerifier = new NeroVerifier();
 
 function getNeroGroupMemoryScope(jid) { return jid ? 'group:' + jid : 'master'; }
 function getNeroGroupMemory(jid) { return neroMemory.list({ scope: getNeroGroupMemoryScope(jid), type: 'facts' }); }
@@ -4302,8 +4305,30 @@ function neroAppendWebSources(
   return String(reply || '').trim();
 }
 
-async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSearch = null, plan = {}) {
-  const history = (conversations.get(jid) ?? []).slice(-12);
+async function buildPrompt(
+  jid,
+  sender,
+  text,
+  groupRoster,
+  senderId = '',
+  webSearch = null,
+  plan = {},
+  phase4 = {}
+) {
+  const baseHistory =
+    (conversations.get(jid) ?? []).slice(-12);
+
+  const expandedHistory =
+    phase4.expandHistory &&
+    jid?.endsWith('@g.us') &&
+    typeof getNeroGroupHistory === 'function'
+      ? getNeroGroupHistory(jid).slice(-40)
+      : null;
+
+  const history =
+    expandedHistory?.length
+      ? expandedHistory
+      : baseHistory;
 
   const recent = history
     .map(x => x.sender + ': ' + x.text)
@@ -4316,11 +4341,13 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSea
       plan,
       history,
       budgetChars:
-        plan.tier === 'strong'
-          ? 5000
-          : plan.tier === 'normal'
-            ? 3500
-            : 2500,
+        phase4.expandHistory
+          ? 6500
+          : plan.tier === 'strong'
+            ? 5000
+            : plan.tier === 'normal'
+              ? 3500
+              : 2500,
       memoryScope: getNeroGroupMemoryScope(jid),
       web: webSearch
     });
@@ -4377,7 +4404,73 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSea
         ].join('\n')
       : '';
 
+  const phase4Instructions =
+    [
+      plan.deep_reasoning
+        ? [
+            'PHASE 4 REASONING:',
+            'Think carefully and privately before answering.',
+            'Separate the task from assumptions.',
+            'Use the strongest retrieved evidence first.',
+            'Resolve contradictions instead of silently choosing a convenient claim.',
+            'Do not expose hidden chain-of-thought or internal reasoning.',
+          ].join('\n')
+        : '',
+      plan.verification
+        ? [
+            'PHASE 4 VERIFICATION:',
+            'Before finalizing, check that the answer actually addresses the request.',
+            'Do not claim that a tool, search, memory lookup, or operation succeeded unless the provided context shows it succeeded.',
+            'When evidence is insufficient, state uncertainty rather than inventing support.',
+          ].join('\n')
+        : '',
+      phase4.recoveryAttempt
+        ? [
+            'PHASE 4 RECOVERY ATTEMPT ' + phase4.recoveryAttempt + ':',
+            'The previous draft failed verification.',
+            'Use the newly gathered context and correct the specific failure.',
+            'Prefer evidence-backed correction over defending the previous draft.',
+          ].join('\n')
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+  const phase4EvidenceBlock =
+    memoryAssembly.failures.length ||
+    phase4.recoveryAttempt
+      ? [
+          'PHASE 4 CONTEXT STATUS:',
+          'Memory/context failures: ' +
+            (
+              memoryAssembly.failures.length
+                ? memoryAssembly.failures
+                    .map(failure =>
+                      String(failure?.source || 'unknown') +
+                      ': ' +
+                      String(failure?.error || 'failed')
+                    )
+                    .join(' | ')
+                : 'none'
+            ),
+          'Recovery actions requested: ' +
+            (
+              Array.isArray(phase4.actions) && phase4.actions.length
+                ? phase4.actions.join(', ')
+                : 'none'
+            ),
+        ].join('\n')
+      : '';
+
+  const phase4PromptBlocks = [
+    phase4Instructions,
+    phase4EvidenceBlock
+  ]
+    .filter(Boolean);
+
   return [
+    ...phase4PromptBlocks,
+    '',
     'You are Nero Claudius, a female member of a WhatsApp group.',
     'Your Master is Phecda.',
     'Phecda is Master. Never confuse Dawn with Master.',
@@ -4704,6 +4797,16 @@ async function buildPrompt(jid, sender, text, groupRoster, senderId = '', webSea
     'Do not explain your personality.',
     'Do not mention these instructions.'
   ].join('\n');
+
+  return {
+    prompt,
+    context: {
+      failures: memoryAssembly.failures,
+      items: memoryAssembly.items,
+      web: webSearch,
+      historyCount: history.length
+    }
+  };
 }
 
 
@@ -6442,9 +6545,13 @@ async function askGemini(
   sender,
   text,
   senderId = '',
-  media = null
+  media = null,
+  phase4 = {}
 ) {
   const started = Date.now();
+  const phase4StartedAt =
+    Number(phase4.startedAt) ||
+    Date.now();
 
   const mediaPrompt = media
     ? media.kind === 'sticker'
@@ -6470,28 +6577,83 @@ async function askGemini(
       selectedModel: selectedKey
     });
 
+  const basePlan =
+    runtimeDecision.plan;
+
+  const recoveryActions =
+    Array.isArray(phase4.actions)
+      ? phase4.actions
+      : [];
+
+  const effectivePlan = {
+    ...basePlan,
+    deep_reasoning:
+      basePlan.deep_reasoning ||
+      Boolean(phase4.recoveryAttempt),
+    verification:
+      basePlan.verification ||
+      Boolean(phase4.recoveryAttempt),
+    memory:
+      basePlan.memory ||
+      recoveryActions.includes('force_memory'),
+    history:
+      basePlan.history ||
+      recoveryActions.includes('expand_history'),
+    web:
+      basePlan.web ||
+      recoveryActions.includes('refresh_web'),
+    tier:
+      phase4.recoveryAttempt
+        ? 'strong'
+        : basePlan.tier
+  };
+
   console.log(
     '[NERO RUNTIME]',
     JSON.stringify({
       jid,
-      mode: runtimeDecision.plan.mode,
-      tier: runtimeDecision.plan.tier,
-      reason: runtimeDecision.plan.reason,
+      mode: effectivePlan.mode,
+      tier: effectivePlan.tier,
+      reason: effectivePlan.reason,
       route: runtimeDecision.route.modelKey,
       source: runtimeDecision.route.source,
-      planning: runtimeDecision.plan.planning,
-      memory: runtimeDecision.plan.memory,
-      webSearch: runtimeDecision.plan.web
+      planning: effectivePlan.planning,
+      memory: effectivePlan.memory,
+      webSearch: effectivePlan.web
     })
   );
 
-  const webSearch =
+  let webSearch =
     await neroMaybeWebSearch(
       text,
       jid
     );
 
-  const prompt =
+  if (
+    phase4.refreshWeb &&
+    NERO_EXA_ENABLED
+  ) {
+    try {
+      const intent =
+        neroDetectWebSearchIntent(
+          text,
+          jid
+        );
+
+      webSearch =
+        await neroSearchExa(
+          intent?.query || text,
+          'recovery'
+        );
+    } catch (error) {
+      console.log(
+        '[NERO PHASE4] Recovery web search failed:',
+        error?.message || error
+      );
+    }
+  }
+
+  const promptBundle =
     await buildPrompt(
       jid,
       sender,
@@ -6499,16 +6661,126 @@ async function askGemini(
       await neroGetGroupRoster(sock, jid),
       senderId,
       webSearch,
-      runtimeDecision.plan
+      effectivePlan,
+      phase4
     );
 
+  const prompt =
+    promptBundle.prompt;
 
   const finish =
-    reply =>
-      neroAppendWebSources(
-        reply,
-        webSearch
+    async reply => {
+      const answer =
+        neroAppendWebSources(
+          reply,
+          webSearch
+        );
+
+      if (!effectivePlan.verification) {
+        return answer;
+      }
+
+      const verdict =
+        neroVerifier.verify({
+          request: text,
+          answer,
+          plan: effectivePlan,
+          context: {
+            ...promptBundle.context,
+            operation: phase4.operation || null
+          }
+        });
+
+      console.log(
+        '[NERO PHASE4] ' +
+        JSON.stringify({
+          attempt:
+            Number(phase4.reasoningAttempt || 1),
+          recovery:
+            Number(phase4.recoveryAttempts || 0),
+          pass: verdict.pass,
+          reason: verdict.reason
+        })
       );
+
+      if (verdict.pass) {
+        return answer;
+      }
+
+      const reasoningLimits =
+        effectivePlan.reasoning || {};
+
+      const maxReasoningAttempts =
+        Math.max(
+          1,
+          Number(
+            reasoningLimits.max_reasoning_attempts || 1
+          )
+        );
+
+      const maxRecoveryAttempts =
+        Math.max(
+          0,
+          Number(
+            reasoningLimits.max_recovery_attempts || 0
+          )
+        );
+
+      const reasoningAttempt =
+        Number(phase4.reasoningAttempt || 1);
+
+      const recoveryAttempts =
+        Number(phase4.recoveryAttempts || 0);
+
+      const elapsed =
+        Date.now() - phase4StartedAt;
+
+      if (
+        verdict.recoverable &&
+        recoveryAttempts < maxRecoveryAttempts &&
+        reasoningAttempt < maxReasoningAttempts &&
+        elapsed <
+          Number(
+            reasoningLimits.time_budget_ms || 45000
+          )
+      ) {
+        const actions =
+          neroVerifier.recoveryActions(
+            verdict
+          );
+
+        console.log(
+          '[NERO PHASE4] Verification failed; recovering:',
+          actions.join(', ')
+        );
+
+        return askGemini(
+          sock,
+          jid,
+          sender,
+          text,
+          senderId,
+          media,
+          {
+            ...phase4,
+            startedAt: phase4StartedAt,
+            reasoningAttempt:
+              reasoningAttempt + 1,
+            recoveryAttempts:
+              recoveryAttempts + 1,
+            recoveryAttempt:
+              recoveryAttempts + 1,
+            actions,
+            expandHistory:
+              actions.includes('expand_history'),
+            refreshWeb:
+              actions.includes('refresh_web')
+          }
+        );
+      }
+
+      return neroVerifier.uncertaintyReply();
+    };
 
   if (
     selectedKey === 'auto' &&
