@@ -29,6 +29,10 @@ import { NeroMemoryService } from './src/core/neroMemory.js';
 import { NeroContextAssembler } from './src/core/neroContextAssembler.js';
 import { NeroVerifier } from './src/core/neroVerifier.js';
 import { NeroDelegator } from './src/core/neroDelegator.js';
+import {
+  buildNeroSocialActionInstructions,
+  parseNeroSocialAction
+} from './src/core/neroSocialAction.js';
 
 const MODEL =
   process.env.NERO_PRIMARY_MODEL || 'gemini-3.5-flash-lite';
@@ -4480,6 +4484,9 @@ async function buildPrompt(
   ]
     .filter(Boolean);
 
+  const socialActionInstructions =
+    buildNeroSocialActionInstructions();
+
   const prompt = [
     ...phase4PromptBlocks,
     '',
@@ -4802,8 +4809,11 @@ async function buildPrompt(
         : ''),
     'CURRENT MESSAGE: ' + text,
     '',
+    socialActionInstructions,
+    '',
     'FINAL INSTRUCTION:',
-    'Reply as Nero.',
+    'Normally reply as Nero.',
+    'If SOCIAL ACTIONS applies, follow its exact machine-marker format instead of adding ordinary text.',
     'Answer naturally.',
     'Use the context.',
     'Do not explain your personality.',
@@ -6793,14 +6803,24 @@ async function askGemini(
 
   const finish =
     async reply => {
+      const socialAction =
+        parseNeroSocialAction(reply);
+
+      if (socialAction.action === 'react' || socialAction.action === 'silent') {
+        return socialAction;
+      }
+
       const answer =
         neroAppendWebSources(
-          reply,
+          socialAction.text,
           webSearch
         );
 
       if (!effectivePlan.verification) {
-        return answer;
+        return {
+          action: 'reply',
+          text: answer
+        };
       }
 
       const verdict =
@@ -6827,7 +6847,10 @@ async function askGemini(
       );
 
       if (verdict.pass) {
-        return answer;
+        return {
+          action: 'reply',
+          text: answer
+        };
       }
 
       const reasoningLimits =
@@ -6902,7 +6925,10 @@ async function askGemini(
         );
       }
 
-      return neroVerifier.uncertaintyReply();
+      return {
+        action: 'reply',
+        text: neroVerifier.uncertaintyReply()
+      };
     };
 
   if (
@@ -9936,7 +9962,7 @@ const masterMentioned = mentionedJids.some(jid =>
           );
         }
 
-        const reply = await askGemini(
+        const response = await askGemini(
           sock,
           jid,
           sender,
@@ -9946,6 +9972,43 @@ const masterMentioned = mentionedJids.some(jid =>
         );
 
         await sock.sendPresenceUpdate('paused', jid).catch(() => {});
+
+        if (response?.action === 'react') {
+          addToHistory(
+            jid,
+            BOT_NAME,
+            '[reaction: ' + response.emoji + ']'
+          );
+
+          await sock.sendMessage(
+            jid,
+            {
+              react: {
+                text: response.emoji,
+                key: message.key
+              }
+            }
+          );
+
+          console.log(
+            `${BOT_NAME}: reacted ${response.emoji}\n`
+          );
+          continue;
+        }
+
+        if (response?.action === 'silent') {
+          console.log(`${BOT_NAME}: [silent]\n`);
+          continue;
+        }
+
+        const reply =
+          response?.action === 'reply'
+            ? String(response.text || '').trim()
+            : String(response || '').trim();
+
+        if (!reply) {
+          continue;
+        }
 
         addToHistory(jid, BOT_NAME, reply);
 
