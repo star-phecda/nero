@@ -1,3 +1,11 @@
+const PRIMARY_PREFERENCES = [
+  'gemini_primary'
+];
+
+const WORKER_PREFERENCES = [
+  'gemini_worker'
+];
+
 const FAST_PREFERENCES = [
   'groq_qwen',
   'gemini_fallback'
@@ -83,6 +91,27 @@ export class NeroModelRouter {
         modelKey: selectedModel,
         tier,
         source: 'explicit'
+      };
+    }
+
+    if (requestedTier === 'worker') {
+      return {
+        modelKey: this.firstAvailable(
+          WORKER_PREFERENCES
+        ),
+        tier: 'worker',
+        source: 'worker-router'
+      };
+    }
+
+    if (requestedTier === 'primary') {
+      return {
+        modelKey: this.firstAvailable(
+          PRIMARY_PREFERENCES,
+          media
+        ),
+        tier: 'primary',
+        source: 'primary-router'
       };
     }
 

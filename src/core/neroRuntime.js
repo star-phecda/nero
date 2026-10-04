@@ -179,6 +179,15 @@ export class NeroRuntime {
     };
   }
 
+  routeWorkerModel({ selectedModel = 'auto', media = null } = {}) {
+    return this.modelRouter.route({
+      tier: 'worker',
+      mode: NERO_MODES.NORMAL,
+      media,
+      selectedModel
+    });
+  }
+
   routeModel(chatId, request = {}) {
     const plan =
       this.plan(

@@ -220,6 +220,16 @@ const NERO_MODEL_CATALOG = [
     media: '🖼️ images • 🎥 video • 🏷️ stickers'
   },
   {
+    key: 'gemini_worker',
+    provider: 'Google',
+    label: 'Gemini worker',
+    model:
+      process.env.NERO_WORKER_MODEL ||
+      'gemini-3.1-flash-lite',
+    media: '📝 text only',
+    internal: true
+  },
+  {
     key: 'groq_qwen',
     provider: 'Groq',
     label: 'Qwen 3.8 27B',
@@ -5875,7 +5885,8 @@ async function askNeroSelectedModel(
   key,
   prompt,
   started,
-  media = null
+  media = null,
+  options = {}
 ) {
   const selected = getNeroModelInfo(key);
 
@@ -5901,7 +5912,8 @@ async function askNeroSelectedModel(
         prompt,
         selected.model,
         started,
-        media
+        media,
+        options
       );
 
     case 'groq_qwen':
@@ -5989,7 +6001,8 @@ async function sendNeroModelMenu(
     NERO_MODEL_CATALOG
       .filter(
         model =>
-          model.key !== 'auto'
+          model.key !== 'auto' &&
+          !model.internal
       )
       .map(model => ({
         title:
@@ -6683,17 +6696,50 @@ async function askGemini(
         webSearch: async (query, options = {}) => {
           return await neroSearchExa(query, options.mode || 'delegation');
         },
-        runModel: async ({ prompt: workerPrompt, maxOutputTokens, signal }) => {
+        runModel: async ({
+          prompt: workerPrompt,
+          maxOutputTokens,
+          signal,
+          tier = 'worker'
+        }) => {
           if (signal?.aborted) {
-            throw signal.reason || new Error('Worker cancelled.');
+            throw signal.reason ||
+              new Error('Worker cancelled.');
           }
 
-          return await askGeminiDirect(
+          const workerRoute =
+            neroRuntime.routeWorkerModel({
+              selectedModel: 'auto'
+            });
+
+          if (
+            workerRoute.modelKey === 'auto'
+          ) {
+            throw new Error(
+              'No worker model is available.'
+            );
+          }
+
+          const workerModel =
+            getNeroModelInfo(
+              workerRoute.modelKey
+            );
+
+          console.log(
+            '[NERO PHASE5.1] Worker route:',
+            workerModel.label,
+            workerModel.model,
+            tier
+          );
+
+          return await askNeroSelectedModel(
+            workerRoute.modelKey,
             workerPrompt,
-            process.env.NERO_DELEGATION_MODEL || MODEL,
             Date.now(),
             null,
-            { maxOutputTokens }
+            {
+              maxOutputTokens
+            }
           );
         },
         signal: phase4.signal || null

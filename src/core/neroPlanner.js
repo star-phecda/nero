@@ -191,7 +191,7 @@ export class NeroPlanner {
         ? {
             enabled: true,
             strategy: 'parallel-research-analysis-critique',
-            maxWorkers: 3,
+            maxWorkers: Math.max(1, Math.min(3, Number(process.env.NERO_PHASE5_MAX_WORKERS || 1))),
             workerTimeoutMs: 15000,
             totalWallTimeMs: PHASE4_TIME_BUDGET_MS,
             totalTokenBudget: 9000,
