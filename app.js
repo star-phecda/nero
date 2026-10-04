@@ -256,12 +256,12 @@ const NERO_MODEL_CATALOG = [
     media: '📝 text only'
   },
   {
-    key: 'openrouter_venice_uncensored',
+    key: 'openrouter_toppy',
     provider: 'OpenRouter',
-    label: 'Venice Uncensored',
+    label: 'Toppy M 7B',
     model:
-      process.env.NERO_OPENROUTER_VENICE_MODEL ||
-      'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+      process.env.NERO_OPENROUTER_TOPPY_MODEL ||
+      'undi95/toppy-m-7b:free',
     media: '📝 text only'
   },
   {
@@ -757,8 +757,11 @@ function neroQuotaText(key) {
     return 'Free prototyping • model/rate limited';
   }
 
-  if (key === 'openrouter_nemotron') {
-    return 'Provider/model limit';
+  if (
+    key === 'openrouter_nemotron' ||
+    key === 'openrouter_toppy'
+  ) {
+    return 'OpenRouter free endpoint • shared free quota';
   }
 
   return 'Automatic provider fallback';
@@ -5996,7 +5999,7 @@ async function askNeroSelectedModel(
       );
 
     case 'openrouter_nemotron':
-    case 'openrouter_venice_uncensored':
+    case 'openrouter_toppy':
       return await askOpenRouter(prompt, started, selected.model);
 
     case 'nvidia_nemotron':
