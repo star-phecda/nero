@@ -4468,7 +4468,7 @@ async function buildPrompt(
   ]
     .filter(Boolean);
 
-  return [
+  const prompt = [
     ...phase4PromptBlocks,
     '',
     'You are Nero Claudius, a female member of a WhatsApp group.',
