@@ -208,21 +208,21 @@ const NERO_MODEL_CATALOG = [
     provider: 'Nero',
     label: 'Automatic fallback',
     model: null,
-    media: '📝 text • 🖼️ images • 🎥 video • 🏷️ stickers'
+    media: 'ð text â¢ ð¼ï¸ images â¢ ð¥ video â¢ ð·ï¸ stickers'
   },
   {
     key: 'gemini_primary',
     provider: 'Google',
     label: 'Gemini primary',
     model: MODEL,
-    media: '🖼️ images • 🎥 video • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð¥ video â¢ ð·ï¸ stickers'
   },
   {
     key: 'gemini_fallback',
     provider: 'Google',
     label: 'Gemini fallback',
     model: FALLBACK_MODEL,
-    media: '🖼️ images • 🎥 video • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð¥ video â¢ ð·ï¸ stickers'
   },
   {
     key: 'gemini_worker',
@@ -231,7 +231,7 @@ const NERO_MODEL_CATALOG = [
     model:
       process.env.NERO_WORKER_MODEL ||
       'gemini-3.1-flash-lite',
-    media: '📝 text only',
+    media: 'ð text only',
     internal: true
   },
   {
@@ -239,21 +239,21 @@ const NERO_MODEL_CATALOG = [
     provider: 'Groq',
     label: 'Qwen 3.8 27B',
     model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
-    media: '🖼️ images • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð·ï¸ stickers'
   },
   {
     key: 'fhrouter_grok',
     provider: 'FHRouter',
     label: 'Grok 4.6',
     model: process.env.FHROUTER_MODEL || 'grok-4.6',
-    media: '📝 text only'
+    media: 'ð text only'
   },
   {
     key: 'openrouter_nemotron',
     provider: 'OpenRouter',
     label: 'Nemotron 3 Ultra 550B',
     model: process.env.NERO_OPENROUTER_MODEL || 'nvidia/nemotron-3-ultra-550b-a55b:free',
-    media: '📝 text only'
+    media: 'ð text only'
   },
   {
     key: 'openrouter_toppy',
@@ -262,49 +262,49 @@ const NERO_MODEL_CATALOG = [
     model:
       process.env.NERO_OPENROUTER_TOPPY_MODEL ||
       'undi95/toppy-m-7b:free',
-    media: '📝 text only'
+    media: 'ð text only'
   },
   {
     key: 'nvidia_nemotron',
     provider: 'NVIDIA NIM',
     label: 'Nemotron 3 Super 120B',
     model: process.env.NVIDIA_NIM_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
-    media: '📝 text only'
+    media: 'ð text only'
   },
   {
     key: 'nvidia_deepseek',
     provider: 'NVIDIA NIM',
     label: 'DeepSeek V4.1 Flash',
     model: process.env.NVIDIA_DEEPSEEK_MODEL || 'deepseek-ai/deepseek-v4.1-flash',
-    media: '🖼️ images • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð·ï¸ stickers'
   },
   {
     key: 'nvidia_lightning',
     provider: 'NVIDIA NIM',
     label: 'Nemotron 3.5 Lightning 30B A3B',
     model: process.env.NVIDIA_LIGHTNING_MODEL || 'nvidia/nemotron-3.5-lightning-30b-a3b',
-    media: '📝 text only'
+    media: 'ð text only'
   },
   {
     key: 'nvidia_glm',
     provider: 'NVIDIA NIM',
     label: 'GLM-5.3 Flash',
     model: process.env.NVIDIA_GLM_MODEL || 'z-ai/glm-5-3-flash',
-    media: '🖼️ images • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð·ï¸ stickers'
   },
   {
     key: 'nvidia_muse',
     provider: 'NVIDIA NIM',
     label: 'Muse Glimmer 30B',
     model: process.env.NVIDIA_MUSE_MODEL || 'meta/muse-glimmer-30b',
-    media: '🖼️ images • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð·ï¸ stickers'
   },
   {
     key: 'nvidia_kimi',
     provider: 'NVIDIA NIM',
     label: 'Kimi K3',
     model: process.env.NVIDIA_KIMI_MODEL || 'moonshotai/kimi-k3',
-    media: '🖼️ images • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð·ï¸ stickers'
   },
   {
     key: 'cloudflare_gemma',
@@ -313,28 +313,28 @@ const NERO_MODEL_CATALOG = [
     model:
       process.env.CLOUDFLARE_GEMMA_MODEL ||
       '@cf/google/gemma-4-26b-a4b-it',
-    media: '🖼️ images • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð·ï¸ stickers'
   },
   {
     key: 'cloudflare_glm',
     provider: 'Cloudflare',
     label: 'GLM-4.7-Flash',
     model: process.env.CLOUDFLARE_MODEL || '@cf/zai-org/glm-4.7-flash',
-    media: '📝 text only'
+    media: 'ð text only'
   },
   {
     key: 'mistral_small',
     provider: 'Mistral',
     label: 'Mistral Small 4',
     model: process.env.MISTRAL_MODEL || 'mistral-small-2603',
-    media: '🖼️ images • 🏷️ stickers'
+    media: 'ð¼ï¸ images â¢ ð·ï¸ stickers'
   },
   {
     key: 'apmix_claude_sonnet46',
     provider: 'APMIX',
     label: 'Claude Sonnet 4.6 Free',
     model: process.env.APMIX_CLAUDE_SONNET46_MODEL || 'claude-sonnet-4-6-free',
-    media: '📝 text only'
+    media: 'ð text only'
   }
 ];
 
@@ -672,9 +672,9 @@ function getNeroModelInfo(key) {
 function neroModelDescription(model) {
   return (
     model.provider +
-    ' • ' +
-    (model.media || '📝 text only') +
-    ' • ' +
+    ' â¢ ' +
+    (model.media || 'ð text only') +
+    ' â¢ ' +
     neroQuotaText(model.key)
   );
 }
@@ -685,14 +685,14 @@ function neroModelSupportsMedia(key, kind) {
   if (key === 'gemini_primary' || key === 'gemini_fallback') return true;
   return Boolean(
     model.media &&
-    model.media.includes('🖼️') &&
+    model.media.includes('ð¼ï¸') &&
     kind !== 'video'
   );
 }
 
 function neroQuotaText(key) {
   if (key === 'fhrouter_grok') {
-    return 'FHRouter • quota controlled by FHRouter';
+    return 'FHRouter â¢ quota controlled by FHRouter';
   }
 
   if (key === 'groq_qwen') {
@@ -721,7 +721,7 @@ function neroQuotaText(key) {
           ' tokens'
         : 'token quota available';
 
-    return requests + ' • ' + tokens;
+    return requests + ' â¢ ' + tokens;
   }
 
   if (
@@ -735,15 +735,15 @@ function neroQuotaText(key) {
     key === 'gemini_primary' ||
     key === 'gemini_fallback'
   ) {
-    return 'Project quota • check Google AI Studio';
+    return 'Project quota â¢ check Google AI Studio';
   }
 
   if (key === 'mistral_small') {
-    return 'Account limits • check Mistral Studio';
+    return 'Account limits â¢ check Mistral Studio';
   }
 
   if (key === 'apmix_claude_sonnet46') {
-    return 'APMIX • account allowance';
+    return 'APMIX â¢ account allowance';
   }
 
   if (
@@ -754,14 +754,14 @@ function neroQuotaText(key) {
     key === 'nvidia_muse' ||
     key === 'nvidia_kimi'
   ) {
-    return 'Free prototyping • model/rate limited';
+    return 'Free prototyping â¢ model/rate limited';
   }
 
   if (
     key === 'openrouter_nemotron' ||
     key === 'openrouter_toppy'
   ) {
-    return 'OpenRouter free endpoint • shared free quota';
+    return 'OpenRouter free endpoint â¢ shared free quota';
   }
 
   return 'Automatic provider fallback';
@@ -770,7 +770,7 @@ function neroQuotaText(key) {
 loadNeroModelSettings();
 
 
-// NERO LONG-TERM MEMORY — Phase 3
+// NERO LONG-TERM MEMORY â Phase 3
 const NERO_MEMORY_FILE = process.cwd() + '/nero_memory.json';
 const NERO_DAWN_PHONE = '2347066350574';
 
@@ -978,7 +978,7 @@ function neroGameScoreboard(game) {
   return [...game.players.values()]
     .sort((a, b) => b.score - a.score)
     .map((player, index) =>
-      (index + 1) + '. ' + player.name + ' — ' + player.score
+      (index + 1) + '. ' + player.name + ' â ' + player.score
     )
     .join('\\n');
 }
@@ -1113,7 +1113,7 @@ const NERO_FAMILY_FEUD_QUESTIONS = [
 function neroFamilyFeudNormalize(text) {
   return String(text || '')
     .toLowerCase()
-    .replace(/['’]/g, '')
+    .replace(/['â]/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -1499,7 +1499,7 @@ function neroFamilyFeudBoardText(game) {
           (index + 1) +
           '. ' +
           entry.answer +
-          ' — ' +
+          ' â ' +
           entry.points
         );
       }
@@ -1509,7 +1509,7 @@ function neroFamilyFeudBoardText(game) {
           (index + 1) +
           '. ' +
           entry.answer +
-          ' — ' +
+          ' â ' +
           entry.points
         );
       }
@@ -1540,7 +1540,7 @@ function neroFamilyFeudParticipantsText(game) {
           (index + 1) +
           '. ' +
           player.name +
-          ' — ' +
+          ' â ' +
           player.totalPoints
         );
       })
@@ -1561,7 +1561,7 @@ function neroFamilyFeudParticipantsText(game) {
           (index + 1) +
           '. ' +
           player.name +
-          ' — ' +
+          ' â ' +
           player.totalPoints
         );
       }).join('\n')
@@ -1573,7 +1573,7 @@ function neroFamilyFeudParticipantsText(game) {
           (index + 1) +
           '. ' +
           player.name +
-          ' — ' +
+          ' â ' +
           player.totalPoints
         );
       }).join('\n')
@@ -2199,7 +2199,7 @@ async function handleNeroFamilyFeudMessage({
       jid,
       'FOUND: ' +
       entry.answer +
-      ' — ' +
+      ' â ' +
       entry.points +
       ' points.\n\n' +
       neroFamilyFeudBoardText(game) +
@@ -2251,7 +2251,7 @@ const NERO_IMPOSTER_FALLBACKS = [
 function neroImposterNormalize(value) {
   return String(value || '')
     .toLowerCase()
-    .replace(/['’]/g, '')
+    .replace(/['â]/g, '')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -2541,19 +2541,19 @@ async function neroImposterSendSecret(sock, player, game) {
 
   const text = isImposter
     ? [
-        '🕵️ IMPOSTER',
+        'ðµï¸ IMPOSTER',
         '',
         'You are the Imposter.',
         'You do NOT know the secret word.',
         '',
-        'Listen carefully to everyone’s clues.',
+        'Listen carefully to everyoneâs clues.',
         'Pretend you know the word.',
         'Blend in.',
         '',
         'Do NOT show anyone this message.'
       ].join('\n')
     : [
-        '🤫 YOUR SECRET WORD',
+        'ð¤« YOUR SECRET WORD',
         '',
         game.secretWord,
         '',
@@ -2568,7 +2568,7 @@ async function neroImposterSendSecret(sock, player, game) {
     player.id,
     text + '\n\nTap READY when you are set.',
     'imposter_ready',
-    '✅ READY',
+    'â READY',
     'IMPOSTER'
   );
 }
@@ -2591,7 +2591,7 @@ async function neroImposterBeginClues(sock, groupJid, game) {
     sock,
     groupJid,
     [
-      '🎭 CLUE PHASE',
+      'ð­ CLUE PHASE',
       '',
       first.name + ' goes first.',
       '',
@@ -2622,17 +2622,17 @@ async function neroImposterReveal(
       sock,
       groupJid,
       [
-        '🗳️ THE VOTE IS IN',
+        'ð³ï¸ THE VOTE IS IN',
         '',
         caught.name + ' was voted out.',
         '',
-        '❌ WRONG.',
+        'â WRONG.',
         caught.name + ' was NOT the Imposter.',
         '',
-        '🕵️ The actual Imposter was ' +
+        'ðµï¸ The actual Imposter was ' +
           imposter.name + '.',
         '',
-        '🏆 IMPOSTER WINS'
+        'ð IMPOSTER WINS'
       ].join('\n')
     );
 
@@ -2646,7 +2646,7 @@ async function neroImposterReveal(
     sock,
     groupJid,
     [
-      '🕵️ CAUGHT!',
+      'ðµï¸ CAUGHT!',
       '',
       caught.name + ' is the Imposter.',
       '',
@@ -2659,7 +2659,7 @@ async function neroImposterReveal(
     sock,
     imposter.id,
     [
-      '🕵️ YOU WERE CAUGHT',
+      'ðµï¸ YOU WERE CAUGHT',
       '',
       'Send me your ONE final guess.',
       '',
@@ -2717,15 +2717,15 @@ async function handleNeroImposterDm({
       await neroGameSend(
         sock,
         jid,
-        '✅ Ready. Keep your secret hidden.'
+        'â Ready. Keep your secret hidden.'
       );
 
       await neroGameSend(
         sock,
         groupJid,
-        '✅ ' +
+        'â ' +
           player.name +
-          ' is ready — ' +
+          ' is ready â ' +
           game.ready.size +
           '/' +
           game.players.size
@@ -2741,7 +2741,7 @@ async function handleNeroImposterDm({
           sock,
           groupJid,
           [
-            '🤫 EVERYONE IS READY.',
+            'ð¤« EVERYONE IS READY.',
             '',
             'Players:',
             neroImposterPlayersText(game),
@@ -2772,7 +2772,7 @@ async function handleNeroImposterDm({
         sock,
         groupJid,
         [
-          '🕵️ FINAL GUESS',
+          'ðµï¸ FINAL GUESS',
           '',
           player.name +
             ' guessed: ' +
@@ -2784,12 +2784,12 @@ async function handleNeroImposterDm({
             game.category,
           '',
           correct
-            ? '✅ CORRECT.'
-            : '❌ WRONG.',
+            ? 'â CORRECT.'
+            : 'â WRONG.',
           '',
           correct
-            ? '🏆 IMPOSTER WINS'
-            : '🏆 THE GROUP WINS'
+            ? 'ð IMPOSTER WINS'
+            : 'ð THE GROUP WINS'
         ].join('\n')
       );
 
@@ -2870,7 +2870,7 @@ async function handleNeroImposterMessage({
         sock,
         jid,
         [
-          '🎭 IMPOSTER',
+          'ð­ IMPOSTER',
           '',
           'One player secretly becomes the Imposter.',
           'Everyone else receives the same secret word.',
@@ -2885,7 +2885,7 @@ async function handleNeroImposterMessage({
           'You can also type join.'
         ].join('\n'),
         'imposter_join',
-        '🎮 JOIN',
+        'ð® JOIN',
         'NERO GAME HALL'
       );
 
@@ -2906,7 +2906,7 @@ async function handleNeroImposterMessage({
     await neroGameSend(
       sock,
       jid,
-      '🎭 Imposter stopped.'
+      'ð­ Imposter stopped.'
     );
 
     return true;
@@ -2932,7 +2932,7 @@ async function handleNeroImposterMessage({
         await neroGameSend(
           sock,
           jid,
-          '🎮 ' +
+          'ð® ' +
             playerName +
             ' joined! (' +
             game.players.size +
@@ -3023,7 +3023,7 @@ async function handleNeroImposterMessage({
             sock,
             jid,
             [
-              '⚠️ Game cancelled.',
+              'â ï¸ Game cancelled.',
               '',
               'I could not privately message ' +
                 player.name +
@@ -3041,7 +3041,7 @@ async function handleNeroImposterMessage({
         sock,
         jid,
         [
-          '🤫 SECRETS SENT',
+          'ð¤« SECRETS SENT',
           '',
           'Check your DM from Nero.',
           'Tap READY when you are set.',
@@ -3119,7 +3119,7 @@ async function handleNeroImposterMessage({
       await neroGameSend(
         sock,
         jid,
-        '🎭 Imposter stopped.'
+        'ð­ Imposter stopped.'
       );
 
       return true;
@@ -3157,7 +3157,7 @@ async function handleNeroImposterMessage({
         sock,
         jid,
         [
-          '💬 ' +
+          'ð¬ ' +
             current.name +
             ': ' +
             raw,
@@ -3176,7 +3176,7 @@ async function handleNeroImposterMessage({
       sock,
       jid,
       [
-        '🗣️ DISCUSSION TIME',
+        'ð£ï¸ DISCUSSION TIME',
         '',
         'All clues are in.',
         '',
@@ -3204,7 +3204,7 @@ async function handleNeroImposterMessage({
         sock,
         jid,
         [
-          '🗳️ VOTING TIME',
+          'ð³ï¸ VOTING TIME',
           '',
           'Who is the Imposter?',
           '',
@@ -3288,9 +3288,9 @@ async function handleNeroImposterMessage({
     await neroGameSend(
       sock,
       jid,
-      '🗳️ ' +
+      'ð³ï¸ ' +
         playerName +
-        ' voted — ' +
+        ' voted â ' +
         game.votes.size +
         '/' +
         game.players.size
@@ -3342,11 +3342,11 @@ async function handleNeroImposterMessage({
           sock,
           jid,
           [
-            '🗳️ TIE.',
+            'ð³ï¸ TIE.',
             '',
             'Nobody was eliminated.',
             '',
-            '🕵️ The Imposter escapes!',
+            'ðµï¸ The Imposter escapes!',
             '',
             'Imposter: ' +
               game.players.get(
@@ -3356,7 +3356,7 @@ async function handleNeroImposterMessage({
             'Secret word: ' +
               game.secretWord,
             '',
-            '🏆 IMPOSTER WINS'
+            'ð IMPOSTER WINS'
           ].join('\n')
         );
 
@@ -3383,7 +3383,7 @@ async function handleNeroImposterMessage({
     await neroGameSend(
       sock,
       jid,
-      '🕵️ The Imposter is making the final guess privately...'
+      'ðµï¸ The Imposter is making the final guess privately...'
     );
 
     return true;
@@ -3707,7 +3707,7 @@ async function handleNeroGameMessage({ sock, jid, message, text }) {
           sock,
           jid,
           'Board cleared.\\n\\n' +
-          question.answers.map(a => a.text + ' — ' + a.points).join('\\n') +
+          question.answers.map(a => a.text + ' â ' + a.points).join('\\n') +
           '\\n\\n' +
           'Say "next" for the next round.'
         );
@@ -4266,7 +4266,7 @@ async function neroSearchExa(
 
   if (!results.length) {
     console.log(
-      '[EXA] No usable results —',
+      '[EXA] No usable results â',
       Date.now() - started,
       'ms'
     );
@@ -4281,11 +4281,11 @@ async function neroSearchExa(
           ? 'Explicit'
           : 'Automatic'
       ) +
-      ' search — ' +
+      ' search â ' +
       query +
-      ' — ' +
+      ' â ' +
       results.length +
-      ' results — ' +
+      ' results â ' +
       (Date.now() - started) +
       ' ms'
   );
@@ -4426,7 +4426,7 @@ async function buildPrompt(
           '"sqlite is a file; postgres is a server. sqlite wins on setup and simplicity for small projects. postgres wins if you need concurrency or features. go with sqlite unless your ego is bigger than your database."',
           '"i don\'t write scripts or code, but i\'ll tell you this: sqlite is a lightweight file, postgres is a heavy lifter. for a personal project, sqlite is your best friend unless you plan on scaling to the moon. keep it simple, genius."',
           'These are style references: decisive, compressed, conversational, mildly insulting when appropriate, and confident. Do not copy them mechanically.',
-          'The final answer should feel like Nero already knew what she wanted to say, then checked the facts—not like an analyst reading her report aloud.'
+          'The final answer should feel like Nero already knew what she wanted to say, then checked the factsânot like an analyst reading her report aloud.'
         ].join('\n')
       : '';
 
@@ -4607,16 +4607,16 @@ async function buildPrompt(
     'Before replying, naturally decide what attitude fits the current message.',
     '',
     'Possible attitudes:',
-    '- DIRECT — simply answer.',
-    '- UNDERWHELMED — the question is trivial, obvious, or unnecessarily complicated.',
-    '- DRY — make one understated observation.',
-    '- TEASING — lightly poke at the person.',
-    '- SAVAGE — return a genuinely good jab when the situation invites it.',
-    '- AMUSED — react to something ridiculous or funny.',
-    '- IMPRESSED — acknowledge something genuinely clever or well done.',
-    '- EXCITED — become energetic when something is genuinely exciting.',
-    '- WARM — especially with Master or during sincere moments.',
-    '- DRAMATIC — occasionally exaggerate something for comedic effect.',
+    '- DIRECT â simply answer.',
+    '- UNDERWHELMED â the question is trivial, obvious, or unnecessarily complicated.',
+    '- DRY â make one understated observation.',
+    '- TEASING â lightly poke at the person.',
+    '- SAVAGE â return a genuinely good jab when the situation invites it.',
+    '- AMUSED â react to something ridiculous or funny.',
+    '- IMPRESSED â acknowledge something genuinely clever or well done.',
+    '- EXCITED â become energetic when something is genuinely exciting.',
+    '- WARM â especially with Master or during sincere moments.',
+    '- DRAMATIC â occasionally exaggerate something for comedic effect.',
     '',
     'Usually use ONE primary attitude.',
     'Sometimes combine two naturally, such as DIRECT + DRY or AMUSED + TEASING.',
@@ -5045,7 +5045,7 @@ async function askGroq(
     '[GROQ] ' +
     groqModel +
     (media ? ' [' + media.kind + ']' : '') +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -5137,7 +5137,7 @@ async function askFHRouter(
   console.log(
     '[FHROUTER] ' +
     model +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -5233,7 +5233,7 @@ async function askOpenRouter(
   console.log(
     '[OPENROUTER] ' +
     model +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -5448,7 +5448,7 @@ async function askNvidiaNim(
     modelKey +
     ']' +
     (media ? ' [' + media.kind + ']' : '') +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -5555,7 +5555,7 @@ async function askMistral(
     '[MISTRAL] ' +
     model +
     (media ? ' [' + media.kind + ']' : '') +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -5722,7 +5722,7 @@ async function askCloudflare(
   console.log(
     '[CLOUDFLARE] ' +
     model +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -5844,7 +5844,7 @@ async function askApmix(
     '[APMIX] ' +
     model +
     (media ? ' [' + media.kind + ']' : '') +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -5930,7 +5930,7 @@ async function askGeminiDirect(
   console.log(
     '[GEMINI DIRECT] ' +
     model +
-    ' — ' +
+    ' â ' +
     (Date.now() - started) +
     ' ms'
   );
@@ -6074,7 +6074,7 @@ async function sendNeroModelMenu(
       .map(model => ({
         title:
           (model.key === selectedKey
-            ? '✓ '
+            ? 'â '
             : '') +
           model.label,
 
@@ -6091,7 +6091,7 @@ async function sendNeroModelMenu(
   rows.unshift({
     title:
       selectedKey === 'auto'
-        ? '✓ Automatic fallback'
+        ? 'â Automatic fallback'
         : 'Automatic fallback',
 
     description:
@@ -6124,7 +6124,7 @@ async function sendNeroModelMenu(
       body:
         proto.Message.InteractiveMessage.Body.create({
           text:
-            '🤖 NERO MODEL\n\n' +
+            'ð¤ NERO MODEL\n\n' +
             'Current: ' +
             selected.label +
             '\n\n' +
@@ -6255,7 +6255,7 @@ function neroExtractQuotedText(text) {
   const source = String(text || '');
 
   const quoteMatch = source.match(
-    /(?:["“‘'])([\s\S]*?)(?:["”’'])/
+    /(?:["ââ'])([\s\S]*?)(?:["ââ'])/
   );
 
   if (quoteMatch) {
@@ -6502,7 +6502,7 @@ function neroDeterministicCountReply(
   if (!referenceText) {
     // Also support "how many dots are here: .............".
     const tailMatch = original.match(
-      /[:：]\s*([.!,?;:_*#\-\s]{2,})$/
+      /[:ï¼]\s*([.!,?;:_*#\-\s]{2,})$/
     );
 
     if (tailMatch) {
@@ -6809,8 +6809,16 @@ async function askGemini(
             }
           );
         },
-        signal: phase4.signal || null
+        signal: phase4.signal || null,
+        artifact: phase4.delegationArtifact || null,
+        recoveryActions,
+        invalidateWorkers: Array.isArray(phase4.invalidateWorkers)
+          ? phase4.invalidateWorkers
+          : [],
+        dependencyInputs: { context: promptBundle.context?.text || '', webSearch }
       });
+
+      phase4.delegationArtifact = delegationResult?.artifact || phase4.delegationArtifact || null;
 
       console.log(
         '[NERO PHASE5] Delegation:',
@@ -6820,7 +6828,11 @@ async function askGemini(
           failed: delegationResult?.failedWorkers || 0,
           elapsedMs: delegationResult?.budget?.elapsedMs || 0,
           reservedTokenBudget:
-            delegationResult?.budget?.reservedTokenBudget || 0
+            delegationResult?.budget?.reservedTokenBudget || 0,
+          reusedWorkers:
+            delegationResult?.reusedWorkerCount || 0,
+          executedWorkers:
+            delegationResult?.executedWorkerCount || 0
         })
       );
     } catch (error) {
@@ -7979,19 +7991,19 @@ function parseNeroNaturalRecapRequest(text, historyLength) {
     }
 
     const result = { seconds, label };
-    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), 'â', JSON.stringify(result));
     return result;
   }
 
   if (/\btoday\b/.test(intentText)) {
     const result = parseNeroRecapRequest('!nero recap today', historyLength);
-    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), 'â', JSON.stringify(result));
     return result;
   }
 
   if (/\byesterday\b/.test(intentText)) {
     const result = parseNeroRecapRequest('!nero recap yesterday', historyLength);
-    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), 'â', JSON.stringify(result));
     return result;
   }
 
@@ -8006,7 +8018,7 @@ function parseNeroNaturalRecapRequest(text, historyLength) {
     const rawCount = countMatch[1].replace(/,/g, '');
     const count = Number(rawCount) * (countMatch[2] === 'k' ? 1000 : 1);
     const result = parseNeroRecapRequest('!nero recap ' + count, historyLength);
-    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), 'â', JSON.stringify(result));
     return result;
   }
 
@@ -8019,7 +8031,7 @@ function parseNeroNaturalRecapRequest(text, historyLength) {
 
   if (hasPlainRecapIntent) {
     const result = { seconds: 21600, label: 'the last 6 hours' };
-    console.log('[NERO RECAP PARSER]', JSON.stringify(original), '→', JSON.stringify(result));
+    console.log('[NERO RECAP PARSER]', JSON.stringify(original), 'â', JSON.stringify(result));
     return result;
   }
 
@@ -8150,10 +8162,10 @@ function buildNeroRecapPrompt(
 
     'OUTPUT RULES:\\n' +
     '- Start immediately with the recap; no preamble.\\n' +
-    '- Use at most 3 short sections: 📌 Important, 💬 Other, ❓ Unresolved.\\n' +
+    '- Use at most 3 short sections: ð Important, ð¬ Other, â Unresolved.\\n' +
     '- Use a maximum of 2 bullets per section.\\n' +
-    '- Keep each bullet to 1–2 sentences.\\n' +
-    '- Target about 120–180 words total.\\n' +
+    '- Keep each bullet to 1â2 sentences.\\n' +
+    '- Target about 120â180 words total.\\n' +
     '- Mention specific people, topics, decisions, or events when supported by the transcript.\\n' +
     '- If a section has nothing meaningful, omit it.\\n' +
     '- Finish the final bullet completely; never trail off mid-sentence.\\n\\n' +
@@ -8403,9 +8415,9 @@ async function startNero() {
         console.log('\\n        ' + code);
         console.log('\\n================================');
         console.log('\\nOn WhatsApp:');
-        console.log('WhatsApp → Linked devices → Link a device');
-        console.log('→ Link with phone number instead');
-        console.log('→ Enter the code above.\\n');
+        console.log('WhatsApp â Linked devices â Link a device');
+        console.log('â Link with phone number instead');
+        console.log('â Enter the code above.\\n');
 
       } catch (err) {
         console.error('\\nPairing code error:', err);
@@ -8419,7 +8431,7 @@ async function startNero() {
       const defaultModelInfo = getNeroModelInfo('auto');
       console.log('Model: Per-chat model selector');
       console.log(
-        `Default: ${defaultModelInfo.label} (Gemini primary → fallback providers)`
+        `Default: ${defaultModelInfo.label} (Gemini primary â fallback providers)`
       );
       console.log(
         `Group replies: ${
@@ -8777,7 +8789,7 @@ async function startNero() {
       await sendNeroControlMessage(
         sock,
         jid,
-        '✅ MODEL SWITCHED\\n\\n' +
+        'â MODEL SWITCHED\\n\\n' +
         'Preferred: ' +
         selected.label +
         '\\n' +
@@ -8795,7 +8807,7 @@ async function startNero() {
       console.log(
         '[NERO MODEL] ' +
         jid +
-        ' → ' +
+        ' â ' +
         selected.label
       );
 
@@ -8835,7 +8847,7 @@ async function startNero() {
       await sendNeroControlMessage(
         sock,
         jid,
-        '✅ AUTOMATIC MODEL SELECTION RESTORED\\n\\n' +
+        'â AUTOMATIC MODEL SELECTION RESTORED\\n\\n' +
         'Nero will use the normal provider fallback chain.'
       );
 
@@ -8937,7 +8949,7 @@ async function startNero() {
             // saying renzo is short. Make it seem like it's you.
             let match =
               body.match(
-                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+["“]([^"”]+)["”]\s+(?:(?:saying|that)|(?:announcing|announce)\s+|(?:and\s+say(?:\s+that)?)|(?:tag\s+(?:everyone|all)\s+and\s+say(?:\s+that)?))\s*([\s\S]+)$/i
+                /^(?:send|message|msg|write)\s+(?:a\s+)?message\s+to\s+(?:the\s+)?group\s+["â]([^"â]+)["â]\s+(?:(?:saying|that)|(?:announcing|announce)\s+|(?:and\s+say(?:\s+that)?)|(?:tag\s+(?:everyone|all)\s+and\s+say(?:\s+that)?))\s*([\s\S]+)$/i
               );
 
             if (match) {
@@ -8959,7 +8971,7 @@ async function startNero() {
               return {
                 groupName: match[1]
                   .trim()
-                  .replace(/^["“]|["”]$/g, ''),
+                  .replace(/^["â]|["â]$/g, ''),
                 instruction: match[2].trim(),
                 tagEveryone: /\btag\s+(?:everyone|all)\s+and\s+say(?:\s+that)?\b/i.test(body)
               };
@@ -9168,7 +9180,7 @@ async function startNero() {
               await sendNeroControlMessage(
                 sock,
                 jid,
-                '✅ Sent the message to ' +
+                'â Sent the message to ' +
                 targetLabel +
                 (
                   dmRequest.groupName && dmRequest.tagEveryone
@@ -9265,7 +9277,7 @@ async function startNero() {
               sock,
               jid,
               mode === 'god'
-                ? '⚡ GOD MODE ACTIVATED.\nTier: ' +
+                ? 'â¡ GOD MODE ACTIVATED.\nTier: ' +
                     profile.modelTier.toUpperCase() +
                     '\nPlanning: ON\nExpanded context: ON'
                 : 'NORMAL MODE RESTORED.'
@@ -9274,7 +9286,7 @@ async function startNero() {
             console.log(
               '[NERO RUNTIME] Mode changed:',
               jid,
-              '→',
+              'â',
               mode
             );
 
@@ -9715,7 +9727,7 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
                 ).length;
 
               const statsText =
-                '🧠 Nero history: ' +
+                'ð§  Nero history: ' +
                 count.toLocaleString() +
                 ' stored messages for this group.\n' +
                 'Last 24h: ' +
@@ -9798,7 +9810,7 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
               );
 
             const finalText =
-              '📝 NERO RECAP — ' +
+              'ð NERO RECAP â ' +
               (
                 recapRequest.label ||
                 'requested period'
@@ -10030,10 +10042,10 @@ const masterMentioned = mentionedJids.some(jid =>
           /^(introduce yourself|introduce urself|who are you|tell us who you are)$/.test(cleanMessageText)
         ) {
           const response = isMasterMessage
-            ? "Nero Claudius—sharp, not here for a lecture. Master, you know the rest."
+            ? "Nero Claudiusâsharp, not here for a lecture. Master, you know the rest."
             : isNeroDawnId(senderId)
               ? "Nero Claudius. We\'ve known each other long enough, Lord Dawn."
-              : "Nero Claudius—sharp, not here for a lecture. You know the rest.";
+              : "Nero Claudiusâsharp, not here for a lecture. You know the rest.";
 
           const sentMessage = await sock.sendMessage(jid, { text: response });
 
