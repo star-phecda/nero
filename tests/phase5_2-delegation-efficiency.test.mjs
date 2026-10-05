@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { NeroDelegator } from './src/core/neroDelegator.js';
+import { NeroDelegator } from '../src/core/neroDelegator.js';
 
 const efficiencyPlan = {
   delegation: true,
