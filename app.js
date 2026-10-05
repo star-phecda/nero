@@ -29,6 +29,7 @@ import { NeroMemoryService } from './src/core/neroMemory.js';
 import { NeroContextAssembler } from './src/core/neroContextAssembler.js';
 import { NeroVerifier } from './src/core/neroVerifier.js';
 import { NeroDelegator } from './src/core/neroDelegator.js';
+import { NeroPresence } from './src/core/neroPresence.js';
 import {
   buildNeroSocialActionInstructions,
   getNeroSocialActionGuard,
