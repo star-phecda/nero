@@ -282,11 +282,15 @@ export class NeroMemoryService {
 
   retrieve(query, {
     scope,
+    scopes,
     types,
     limit = 20,
     minScore = 0,
     now = this.clock()
   } = {}) {
+    const allowedScopes = Array.isArray(scopes) && scopes.length
+      ? new Set(scopes.map(value => String(value || '').trim()).filter(Boolean))
+      : null;
     const queryText = cleanText(query);
     const queryTokens = tokens(queryText);
     const querySet = new Set(queryTokens);
@@ -297,7 +301,11 @@ export class NeroMemoryService {
     return this.memories
       .filter(entry => {
         if (entry.status !== 'active') return false;
-        if (scope && entry.scope !== scope && entry.scope !== 'master') return false;
+        if (allowedScopes) {
+          if (!allowedScopes.has(entry.scope)) return false;
+        } else if (scope && entry.scope !== scope && entry.scope !== 'master') {
+          return false;
+        }
         if (allowedTypes && !allowedTypes.has(entry.type)) return false;
         return true;
       })
@@ -347,9 +355,13 @@ export class NeroMemoryService {
       .slice(0, Math.max(0, Number(limit) || 0));
   }
 
-  list({ scope, type } = {}) {
+  list({ scope, scopes, type } = {}) {
+    const allowedScopes = Array.isArray(scopes) && scopes.length
+      ? new Set(scopes.map(value => String(value || '').trim()).filter(Boolean))
+      : null;
+
     return this.memories.filter(entry =>
-      (!scope || entry.scope === scope) &&
+      (allowedScopes ? allowedScopes.has(entry.scope) : (!scope || entry.scope === scope)) &&
       (!type || entry.type === type) &&
       entry.status === 'active'
     );
@@ -368,12 +380,14 @@ export class NeroMemoryService {
 
   buildContext(query, {
     scope,
+    scopes,
     limit = 20,
     maxChars = 2500,
     types
   } = {}) {
     const ranked = this.retrieve(query, {
       scope,
+      scopes,
       types,
       limit
     });

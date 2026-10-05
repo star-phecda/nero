@@ -30,6 +30,7 @@ import { NeroContextAssembler } from './src/core/neroContextAssembler.js';
 import { NeroVerifier } from './src/core/neroVerifier.js';
 import { NeroDelegator } from './src/core/neroDelegator.js';
 import { NeroPresence } from './src/core/neroPresence.js';
+import { NeroIdentityService, normalizeNeroIdentityId } from './src/core/neroIdentity.js';
 import {
   buildNeroSocialActionInstructions,
   getNeroSocialActionGuard,
@@ -794,24 +795,47 @@ function neroDawnCandidates(message) {
 function isNeroDawnMessage(message) { return neroDawnCandidates(message).some(isNeroDawnId); }
 
 const neroMemory = new NeroMemoryService({ filePath: NERO_MEMORY_FILE });
+const neroIdentity = new NeroIdentityService({ filePath: process.cwd() + '/nero_people.json' });
 const neroContextAssembler = new NeroContextAssembler({ memory: neroMemory, defaultBudgetChars: 3000 });
 
 const neroVerifier = new NeroVerifier();
 const neroDelegator = new NeroDelegator();
 
 function getNeroGroupMemoryScope(jid) { return jid ? 'group:' + jid : 'master'; }
-function getNeroGroupMemory(jid) { return neroMemory.list({ scope: getNeroGroupMemoryScope(jid), type: 'facts' }); }
+function getNeroPersonMemoryScope(personId) {
+  const normalized = normalizeNeroIdentityId(personId);
+  return normalized ? 'person:' + normalized : '';
+}
+function getNeroMemoryScopes(jid, identity) {
+  const scopes = [];
+  if (jid) scopes.push(getNeroGroupMemoryScope(jid));
+  scopes.push('master');
+  if (identity?.role !== 'master' && identity?.personScope) scopes.push(identity.personScope);
+  return [...new Set(scopes)];
+}
+function getNeroGroupMemory(jid) {
+  return neroMemory.list({ scope: getNeroGroupMemoryScope(jid), type: 'facts' });
+}
 function addNeroMemory(jid, scope, fact, metadata = {}) {
-  const targetScope = scope === 'master' ? 'master' : getNeroGroupMemoryScope(jid);
+  const targetScope = scope === 'master'
+    ? 'master'
+    : scope === 'person'
+      ? getNeroPersonMemoryScope(metadata.personId)
+      : getNeroGroupMemoryScope(jid);
+  if (!targetScope) return false;
   return Boolean(neroMemory.add(fact, { ...metadata, type: metadata.type || 'facts', scope: targetScope, source: metadata.source || 'whatsapp-memory' }));
 }
-function forgetNeroMemory(jid, query) {
+function forgetNeroMemory(jid, query, personId = '') {
+  const personScope = getNeroPersonMemoryScope(personId);
+  if (personScope) return neroMemory.remove(query, { scope: personScope });
   return neroMemory.remove(query, { scope: 'master' }) + neroMemory.remove(query, { scope: getNeroGroupMemoryScope(jid) });
 }
 function clearNeroGroupMemory(jid) { return neroMemory.clearScope(getNeroGroupMemoryScope(jid)); }
-function formatNeroMemoryForPrompt(jid, query = '') {
-  return neroMemory.buildContext(query || 'important information about Master, this group, preferences, projects, people and recent events', { scope: getNeroGroupMemoryScope(jid), limit: 30, maxChars: 2500 }).text;
+function formatNeroMemoryForPrompt(jid, query = '', identity = null) {
+  return neroMemory.buildContext(query || 'important information about Master, this group, this person, preferences, projects, people and recent events', { scopes: getNeroMemoryScopes(jid, identity), limit: 30, maxChars: 2500 }).text;
 }
+
+console.log('[Identity] Person-aware identity/context layer loaded.');
 console.log('[Memory] Phase 3 memory loaded.');
 
 console.log('[Memory] Long-term memory loaded.');
@@ -3875,17 +3899,41 @@ async function downloadNeroMedia(media) {
   return Buffer.concat(chunks);
 }
 
-function addToHistory(jid, sender, text) {
+const personConversations = new Map();
+
+function getNeroPersonConversationKey(jid, personId) {
+  const chatKey = normalizeNeroIdentityId(jid) || String(jid || '').trim();
+  const personKey = normalizeNeroIdentityId(personId) || String(personId || '').trim();
+  if (!chatKey || !personKey) return '';
+  return chatKey + '|' + personKey;
+}
+
+function getNeroPersonConversationHistory(jid, personId) {
+  const key = getNeroPersonConversationKey(jid, personId);
+  if (!key) return [];
+  if (!personConversations.has(key)) personConversations.set(key, []);
+  return personConversations.get(key);
+}
+
+function addToHistory(jid, sender, text, metadata = {}) {
   if (!conversations.has(jid)) conversations.set(jid, []);
   const history = conversations.get(jid);
-  history.push({ sender, text });
+  const entry = {
+    sender,
+    text,
+    senderId: metadata.senderId || '',
+    senderRole: metadata.senderRole || '',
+    personId: metadata.personId || ''
+  };
+  history.push(entry);
+  const contextLimit = neroRuntime.getContextPolicy(jid).recentMessages;
+  while (history.length > contextLimit) history.shift();
 
-  const contextLimit =
-    neroRuntime.getContextPolicy(jid).recentMessages;
-
-  while (history.length > contextLimit) {
-    history.shift();
-  }
+  const personId = normalizeNeroIdentityId(metadata.personId || '');
+  if (!personId) return;
+  const personHistory = getNeroPersonConversationHistory(jid, personId);
+  personHistory.push({ ...entry, chatId: jid });
+  while (personHistory.length > contextLimit) personHistory.shift();
 }
 
 
@@ -4003,12 +4051,18 @@ const NERO_WEB_CURRENT_PATTERN =
 
 function neroPreviousUserQuery(
   jid,
-  currentText
+  currentText,
+  senderId = ''
 ) {
+  const personId = normalizeNeroIdentityId(senderId);
   const history =
-    Array.isArray(conversations.get(jid))
-      ? conversations.get(jid)
-      : [];
+    personId
+      ? getNeroPersonConversationHistory(jid, personId)
+      : (
+          Array.isArray(conversations.get(jid))
+            ? conversations.get(jid)
+            : []
+        );
 
   const current =
     String(currentText || '')
@@ -4060,7 +4114,8 @@ function neroPreviousUserQuery(
 
 function neroDetectWebSearchIntent(
   text,
-  jid = ''
+  jid = '',
+  senderId = ''
 ) {
   const original =
     String(text || '').trim();
@@ -4115,7 +4170,8 @@ function neroDetectWebSearchIntent(
       query =
         neroPreviousUserQuery(
           jid,
-          original
+          original,
+          senderId
         );
     }
 
@@ -4299,7 +4355,11 @@ async function neroSearchExa(
   };
 }
 
-async function neroMaybeWebSearch(text, jid = '') {
+async function neroMaybeWebSearch(
+  text,
+  jid = '',
+  senderId = ''
+) {
   if (!NERO_EXA_ENABLED) {
     return null;
   }
@@ -4344,26 +4404,34 @@ async function buildPrompt(
   senderId = '',
   webSearch = null,
   plan = {},
-  phase4 = {}
+  phase4 = {},
+  identity = null
 ) {
-  const baseHistory =
-    (conversations.get(jid) ?? []).slice(-12);
+  const speakerIdentity =
+    identity || neroIdentity.resolve({
+      chatId: jid,
+      senderId,
+      senderName: sender,
+      role: sender === 'Master' ? 'master' : isNeroDawnId(senderId) ? 'dawn' : 'person'
+    });
 
-  const expandedHistory =
-    phase4.expandHistory &&
-    jid?.endsWith('@g.us') &&
-    typeof getNeroGroupHistory === 'function'
+  const personHistory = speakerIdentity?.personId
+    ? getNeroPersonConversationHistory(jid, speakerIdentity.personId)
+    : [];
+  const useSharedGroupHistory =
+    jid?.endsWith('@g.us') && shouldUseSharedGroupHistory(text);
+  const sharedGroupHistory =
+    useSharedGroupHistory && typeof getNeroGroupHistory === 'function'
       ? getNeroGroupHistory(jid).slice(-40)
-      : null;
-
+      : [];
   const history =
-    expandedHistory?.length
-      ? expandedHistory
-      : baseHistory;
-
+    useSharedGroupHistory && sharedGroupHistory.length
+      ? sharedGroupHistory
+      : personHistory.slice(-(phase4.expandHistory ? 40 : 12));
   const recent = history
     .map(x => x.sender + ': ' + x.text)
-    .join('\n')
+    .join('
+')
     .slice(-4500);
 
   const memoryAssembly =
@@ -4380,6 +4448,7 @@ async function buildPrompt(
               ? 3500
               : 2500,
       memoryScope: getNeroGroupMemoryScope(jid),
+      memoryScopes: getNeroMemoryScopes(jid, speakerIdentity),
       web: webSearch
     });
 
@@ -4391,6 +4460,16 @@ async function buildPrompt(
       .slice(0, 2500) ||
     '(no relevant long-term memories)';
 
+
+  const identityContextBlock = [
+    'CURRENT SPEAKER IDENTITY:',
+    'The current speaker is a distinct person. Do not confuse this person with any other participant.',
+    'Role: ' + (speakerIdentity.role === 'master' ? 'Master' : speakerIdentity.role === 'dawn' ? 'Dawn' : 'Person'),
+    'Display name: ' + (speakerIdentity.displayName || sender || 'Unknown'),
+    'Stable person context: ' + speakerIdentity.personId,
+    'The conversational thread below belongs to this person and this chat only.',
+    'Person-specific memories belong ONLY to this speaker unless explicitly marked as shared or Master memory.'
+  ].join('\n');
 
   const groupRosterText = groupRoster?.length
     ? groupRoster.map(function (member) {
@@ -4826,10 +4905,17 @@ async function buildPrompt(
     '- Do not pretend to remember something that is not present.',
     '- Do not repeat stored facts unnecessarily.',
     '',
+    identityContextBlock,
+    '',
     'LONG-TERM MEMORY:',
     longTermMemory,
     '',
 
+    'SHARED CONVERSATION POLICY:',
+    useSharedGroupHistory
+      ? 'This message explicitly asks about the wider group/chat, so shared group history may be relevant.'
+      : 'Do not use another participant\'s conversational thread as though it were the current speaker\'s.',
+    '',
     'GROUP MEMBERS:',
     '- The following list comes from WhatsApp group metadata.',
     '- It is the authoritative list of current group participants.',
@@ -4848,12 +4934,12 @@ async function buildPrompt(
     'RUNTIME MODE: ' + neroRuntime.getProfile(jid).name,
     'RUNTIME CAPABILITIES: ' + neroRuntime.getCapabilities(jid).join(', '),
     'CURRENT SPEAKER ROLE: ' +
-      (isNeroDawnId(senderId)
-        ? 'Dawn'
-        : sender === 'Master'
-          ? 'Master'
-          : 'Group member') +
-      (isNeroDawnId(senderId)
+      (speakerIdentity.role === 'master'
+        ? 'Master'
+        : speakerIdentity.role === 'dawn'
+          ? 'Dawn'
+          : 'Person') +
+      (speakerIdentity.role === 'dawn'
         ? ' (identified by +2347066350574)'
         : ''),
     'CURRENT MESSAGE: ' + text,
@@ -6234,8 +6320,15 @@ function neroFormatDeterministicNumber(value) {
   return String(Number(value.toFixed(12)));
 }
 
-function neroPreviousConversationText(jid) {
-  const history = conversations.get(jid) || [];
+function neroPreviousConversationText(
+  jid,
+  senderId = ''
+) {
+  const personId = normalizeNeroIdentityId(senderId);
+  const history =
+    personId
+      ? getNeroPersonConversationHistory(jid, personId)
+      : conversations.get(jid) || [];
 
   for (let index = history.length - 1; index >= 0; index--) {
     const item = history[index];
@@ -6485,7 +6578,11 @@ function neroDeterministicCountReply(
     neroExtractQuotedText(original);
 
   if (!referenceText) {
-    const previous = neroPreviousConversationText(jid);
+    const previous =
+      neroPreviousConversationText(
+        jid,
+        senderId
+      );
 
     // Prefer a previous message that is visually a single repeated
     // character/string when the user asks about punctuation.
@@ -6541,7 +6638,8 @@ function neroDeterministicCountReply(
 
 function neroDeterministicReply(
   jid,
-  text
+  text,
+  senderId = ''
 ) {
   const original = String(text || '').trim();
   const lower = original.toLowerCase();
@@ -6732,7 +6830,8 @@ async function askGemini(
   let webSearch =
     await neroMaybeWebSearch(
       text,
-      jid
+      jid,
+      senderId
     );
 
   if (
@@ -6759,6 +6858,13 @@ async function askGemini(
     }
   }
 
+  const speakerIdentity = neroIdentity.resolve({
+    chatId: jid,
+    senderId,
+    senderName: sender,
+    role: sender === 'Master' ? 'master' : isNeroDawnId(senderId) ? 'dawn' : 'person'
+  });
+
   const promptBundle =
     await buildPrompt(
       jid,
@@ -6768,7 +6874,8 @@ async function askGemini(
       senderId,
       webSearch,
       effectivePlan,
-      phase4
+      phase4,
+      speakerIdentity
     );
 
   let delegationResult = null;
@@ -7454,6 +7561,12 @@ function getNeroGroupHistory(jid) {
   return neroGroupHistory[jid];
 }
 
+function shouldUseSharedGroupHistory(text) {
+  return /(?:group|chat|everyone|anyone|someone|member|members|who said|what did .+ say|what happened here|what happened in (?:the )?(?:group|chat)|what were we discussing)/i.test(
+    String(text || '')
+  );
+}
+
 
 
 function normalizeNeroDmTarget(value) {
@@ -7751,7 +7864,8 @@ function addNeroGroupHistoryMessage(
   id,
   sender,
   text,
-  timestamp
+  timestamp,
+  senderId = ''
 ) {
   if (
     !jid?.endsWith('@g.us') ||
@@ -7796,6 +7910,7 @@ function addNeroGroupHistoryMessage(
   history.push({
     id: messageId,
     sender: sender || 'Unknown',
+    senderId: normalizeNeroIdentityId(senderId),
     text: clean,
     timestamp:
       Number(timestamp) ||
@@ -8652,13 +8767,21 @@ async function startNero() {
           isMasterMessage ||
           dawnMessage;
 
+        const senderIdentity = neroIdentity.resolve({
+          chatId: jid,
+          senderId,
+          senderName: sender,
+          role: isMasterMessage ? 'master' : dawnMessage ? 'dawn' : 'person'
+        });
+
         // Persist live group messages for on-demand recaps.
         addNeroGroupHistoryMessage(
           jid,
           message.key?.id,
           sender,
           text,
-          messageTimestamp
+          messageTimestamp,
+          senderId
         );
 
         const normalizedContent =
@@ -9424,7 +9547,20 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
             continue;
           }
 
-          const added = addNeroMemory(jid, scope, fact);
+          let personId = '';
+          const personMatch = payload.match(/^person\s*:\s*(current|[^\s]+)\s+([\s\S]+)$/i);
+          if (personMatch) {
+            scope = 'person';
+            personId = personMatch[1].toLowerCase() === 'current'
+              ? senderIdentity.personId
+              : normalizeNeroIdentityId(personMatch[1]);
+            fact = personMatch[2].trim();
+          }
+          if (scope === 'person' && !personId) {
+            await sendNeroControlMessage(sock, jid, 'I need a valid person id or phone number.');
+            continue;
+          }
+          const added = addNeroMemory(jid, scope, fact, { personId });
 
           await sendNeroControlMessage(
             sock,
@@ -9444,8 +9580,8 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
             memoryLower === '!nero memory'
           )
         ) {
-          const masterLines = neroMemory.master.slice(-20);
-          const groupLines = getNeroGroupMemory(jid).slice(-20);
+          const masterLines = neroMemory.list({ scope: 'master' }).slice(-20).map(entry => entry.text);
+          const groupLines = getNeroGroupMemory(jid).slice(-20).map(entry => entry.text);
 
           const output = [
             'Long-term memory',
@@ -9486,7 +9622,15 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
         }
 
         if (isMasterMemoryCommand && memoryLower.startsWith('!forget ')) {
-          const query = memoryCommandText.slice(8).trim();
+          let query = memoryCommandText.slice(8).trim();
+          let personId = '';
+          const personForgetMatch = query.match(/^person\s*:\s*(current|[^\s]+)\s+([\s\S]+)$/i);
+          if (personForgetMatch) {
+            personId = personForgetMatch[1].toLowerCase() === 'current'
+              ? senderIdentity.personId
+              : normalizeNeroIdentityId(personForgetMatch[1]);
+            query = personForgetMatch[2].trim();
+          }
 
           if (!query) {
             await sendNeroControlMessage(
@@ -9497,7 +9641,7 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
             continue;
           }
 
-          const removed = forgetNeroMemory(jid, query);
+          const removed = forgetNeroMemory(jid, query, personId);
 
           await sendNeroControlMessage(
             sock,
@@ -10109,8 +10253,13 @@ const masterMentioned = mentionedJids.some(jid =>
 
         addToHistory(
           jid,
-          isMasterMessage ? 'Master' : 'Group member',
-          inputText
+          isMasterMessage ? 'Master' : dawnMessage ? 'Dawn' : sender,
+          inputText,
+          {
+            senderId,
+            senderRole: senderIdentity.role,
+            personId: senderIdentity.personId
+          }
         );
 
         if (
@@ -10168,7 +10317,11 @@ const masterMentioned = mentionedJids.some(jid =>
           addToHistory(
             jid,
             BOT_NAME,
-            '[reaction: ' + response.emoji + ']'
+            '[reaction: ' + response.emoji + ']',
+            {
+              senderRole: 'nero',
+              personId: senderIdentity.personId
+            }
           );
 
           await sock.sendMessage(
@@ -10201,7 +10354,15 @@ const masterMentioned = mentionedJids.some(jid =>
           continue;
         }
 
-        addToHistory(jid, BOT_NAME, reply);
+        addToHistory(
+          jid,
+          BOT_NAME,
+          reply,
+          {
+            senderRole: 'nero',
+            personId: senderIdentity.personId
+          }
+        );
 
         rememberNeroBotOutbound(
           jid,

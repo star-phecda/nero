@@ -27,7 +27,8 @@ export class NeroContextAssembler {
     projectState = null,
     web = null,
     budgetChars = this.defaultBudgetChars,
-    memoryScope = 'master'
+    memoryScope = 'master',
+    memoryScopes = null
   } = {}) {
     const budget = Math.max(500, Number(budgetChars) || this.defaultBudgetChars);
     const sections = [];
@@ -64,6 +65,7 @@ export class NeroContextAssembler {
       try {
         const memoryContext = this.memory.buildContext(request, {
           scope: memoryScope,
+          scopes: Array.isArray(memoryScopes) && memoryScopes.length ? memoryScopes : undefined,
           limit: plan.tier === 'strong' ? 30 : 15,
           maxChars: Math.max(700, Math.floor(budget * 0.55))
         });
@@ -72,6 +74,7 @@ export class NeroContextAssembler {
           append('memory', result.entry.text, {
             id: result.entry.id,
             type: result.entry.type,
+            scope: result.entry.scope,
             score: result.score,
             signals: result.signals
           });
