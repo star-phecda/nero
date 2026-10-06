@@ -1,0 +1,38 @@
+name: repair-app-syntax
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Repair broken newline joins
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app.js")
+          s = p.read_text()
+          old = ".join('\n')"
+          new = ".join('\\n')"
+          count = s.count(old)
+          if count != 2:
+              raise SystemExit(f"expected exactly 2 broken joins, found {count}")
+          p.write_text(s.replace(old, new))
+          PY
+          node --check app.js
+
+      - name: Commit fix and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js
+          git rm .github/workflows/repair-app-syntax.yml
+          git commit -m "fix: repair broken newline joins in app.js"
+          git push
