@@ -48,6 +48,55 @@ const BOT_NAME = process.env.BOT_NAME || 'Nero';
 const NERO_VOICE_ENABLED =
   process.env.NERO_VOICE_ENABLED === 'true';
 
+const NERO_VOICE_SETTINGS_FILE =
+  process.cwd() + '/nero_voice_settings.json';
+
+let neroVoiceSettings = {};
+
+function loadNeroVoiceSettings() {
+  try {
+    const saved = JSON.parse(
+      fs.readFileSync(NERO_VOICE_SETTINGS_FILE, 'utf8')
+    );
+    if (saved && typeof saved === 'object') {
+      neroVoiceSettings = saved;
+    }
+  } catch (error) {
+    console.log('[VOICE] Load error:', error.message);
+  }
+}
+
+function saveNeroVoiceSettings() {
+  try {
+    fs.writeFileSync(
+      NERO_VOICE_SETTINGS_FILE,
+      JSON.stringify(neroVoiceSettings, null, 2),
+      'utf8'
+    );
+  } catch (error) {
+    console.log('[VOICE] Save error:', error.message);
+  }
+}
+
+function getNeroVoiceSettingKey(jid) {
+  return normalizeJid(jid) || String(jid || '');
+}
+
+function getNeroVoiceEnabled(jid) {
+  if (!NERO_VOICE_ENABLED) return false;
+  const key = getNeroVoiceSettingKey(jid);
+  const saved = neroVoiceSettings[key];
+  return saved === true;
+}
+
+function setNeroVoiceEnabled(jid, enabled) {
+  const key = getNeroVoiceSettingKey(jid);
+  neroVoiceSettings[key] = Boolean(enabled);
+  saveNeroVoiceSettings();
+}
+
+loadNeroVoiceSettings();
+
 const ELEVENLABS_API_KEY =
   process.env.ELEVENLABS_API_KEY || '';
 
@@ -6232,6 +6281,96 @@ async function askNeroSelectedModel(
   }
 }
 
+async function sendNeroVoiceMenu(
+  sock,
+  jid
+) {
+  const enabled = getNeroVoiceEnabled(jid);
+
+  const rows = [
+    {
+      title: enabled ? '✓ Voice: ON' : 'Voice: ON',
+      description: 'Send Nero replies as Rising Blade voice notes',
+      id: 'nero:voice:on'
+    },
+    {
+      title: !enabled ? '✓ Voice: OFF' : 'Voice: OFF',
+      description: 'Keep Nero replies text-only',
+      id: 'nero:voice:off'
+    }
+  ];
+
+  const nativeButton = {
+    name: 'single_select',
+    buttonParamsJson: JSON.stringify({
+      title: 'Choose voice mode',
+      sections: [{
+        title: 'Nero voice',
+        highlight_label: enabled ? 'Current: Voice ON' : 'Current: Text only',
+        rows
+      }]
+    })
+  };
+
+  const interactiveMessage =
+    proto.Message.InteractiveMessage.create({
+      body: proto.Message.InteractiveMessage.Body.create({
+        text:
+          '🎙️ NERO VOICE\\n\\n' +
+          'Current: ' +
+          (enabled ? 'Voice notes' : 'Text only') +
+          '\\nVoice: Rising Blade' +
+          '\\n\\nChoose whether Nero should speak her replies.'
+      }),
+      footer:
+        proto.Message.InteractiveMessage.Footer.create({
+          text: NERO_VOICE_ENABLED
+            ? 'Voice is powered by ElevenLabs.'
+            : 'Voice is disabled by the server configuration.'
+        }),
+      nativeFlowMessage:
+        proto.Message.InteractiveMessage.NativeFlowMessage.create({
+          buttons: [
+            proto.Message.InteractiveMessage.NativeFlowMessage.NativeFlowButton.create(
+              nativeButton
+            )
+          ],
+          messageParamsJson: '{}',
+          messageVersion: 1
+        })
+    });
+
+  const waMessage = generateWAMessageFromContent(
+    jid,
+    { interactiveMessage },
+    { userJid: sock.user?.id }
+  );
+
+  const bizNode = neroImposterBizNode();
+  const additionalNodes = jid.endsWith('@g.us')
+    ? [bizNode]
+    : [
+        { tag: 'bot', attrs: { biz_bot: '1' } },
+        bizNode
+      ];
+
+  await sock.relayMessage(
+    jid,
+    waMessage.message,
+    {
+      messageId: waMessage.key.id,
+      additionalNodes
+    }
+  );
+
+  if (waMessage?.key?.id) {
+    botSentMessageIds.add(waMessage.key.id);
+    setTimeout(() => botSentMessageIds.delete(waMessage.key.id), 5 * 60 * 1000);
+  }
+
+  console.log('[VOICE MENU] Sent to', jid);
+}
+
 async function sendNeroModelMenu(
   sock,
   jid
@@ -8987,6 +9126,76 @@ async function startNero() {
 
     const neroCommand = (text || '').trim().toLowerCase();
 
+    /* NERO VOICE SELECTOR */
+
+    if (
+      isNeroPrivilegedMessage &&
+      /^nero:voice:(on|off)$/i.test(text || '')
+    ) {
+      const enabled = /^nero:voice:on$/i.test(text || '');
+
+      if (enabled && !NERO_VOICE_ENABLED) {
+        await sendNeroControlMessage(
+          sock,
+          jid,
+          'Voice is disabled in Nero\\'s server configuration.'
+        );
+        continue;
+      }
+
+      setNeroVoiceEnabled(jid, enabled);
+
+      await sendNeroControlMessage(
+        sock,
+        jid,
+        enabled
+          ? '🎙️ VOICE ON\\n\\nNero will now send voice notes using Rising Blade.'
+          : '🔇 VOICE OFF\\n\\nNero will stay text-only in this chat.'
+      );
+
+      continue;
+    }
+
+    if (
+      isNeroPrivilegedMessage &&
+      (
+        neroCommand === '!nero voice' ||
+        neroCommand === '!nero voices' ||
+        neroCommand === '!voice'
+      )
+    ) {
+      await sendNeroVoiceMenu(sock, jid);
+      continue;
+    }
+
+    if (
+      isNeroPrivilegedMessage &&
+      (
+        neroCommand === '!nero voice on' ||
+        neroCommand === '!voice on'
+      )
+    ) {
+      if (!NERO_VOICE_ENABLED) {
+        await sendNeroControlMessage(sock, jid, 'Voice is disabled in Nero\\'s server configuration.');
+        continue;
+      }
+      setNeroVoiceEnabled(jid, true);
+      await sendNeroControlMessage(sock, jid, '🎙️ VOICE ON\\n\\nRising Blade is now active for this chat.');
+      continue;
+    }
+
+    if (
+      isNeroPrivilegedMessage &&
+      (
+        neroCommand === '!nero voice off' ||
+        neroCommand === '!voice off'
+      )
+    ) {
+      setNeroVoiceEnabled(jid, false);
+      await sendNeroControlMessage(sock, jid, '🔇 VOICE OFF\\n\\nText-only mode restored.');
+      continue;
+    }
+
     /* NERO MODEL SELECTOR */
 
     const isMasterModelSelection =
@@ -10467,12 +10676,14 @@ const masterMentioned = mentionedJids.some(jid =>
           { quoted: message }
         );
 
-        // Voice is optional; text remains authoritative if TTS fails.
-        await sendNeroVoice(
-          sock,
-          jid,
-          reply
-        );
+        // Voice is opt-in per chat; text remains authoritative if TTS fails.
+        if (getNeroVoiceEnabled(jid)) {
+          await sendNeroVoice(
+            sock,
+            jid,
+            reply
+          );
+        }
 
         if (sentMessage?.key?.id) {
           botSentMessageIds.add(sentMessage.key.id);
