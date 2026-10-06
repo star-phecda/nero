@@ -44,6 +44,99 @@ const FALLBACK_MODEL =
   process.env.NERO_FALLBACK_MODEL || 'gemini-3.1-flash-lite';
 
 const BOT_NAME = process.env.BOT_NAME || 'Nero';
+
+const NERO_VOICE_ENABLED =
+  process.env.NERO_VOICE_ENABLED === 'true';
+
+const ELEVENLABS_API_KEY =
+  process.env.ELEVENLABS_API_KEY || '';
+
+const NERO_VOICE_ID =
+  process.env.NERO_VOICE_ID || '';
+
+const NERO_TTS_MODEL =
+  process.env.NERO_TTS_MODEL || 'eleven_flash_v2_5';
+
+const NERO_TTS_TIMEOUT_MS =
+  Number(process.env.NERO_TTS_TIMEOUT_MS || 30000);
+
+async function generateNeroVoiceAudio(text) {
+  if (
+    !NERO_VOICE_ENABLED ||
+    !ELEVENLABS_API_KEY ||
+    !NERO_VOICE_ID ||
+    !String(text || '').trim()
+  ) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), NERO_TTS_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(
+      'https://api.elevenlabs.io/v1/text-to-speech/' +
+        encodeURIComponent(NERO_VOICE_ID),
+      {
+        method: 'POST',
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY,
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg'
+        },
+        body: JSON.stringify({
+          text: String(text).trim(),
+          model_id: NERO_TTS_MODEL,
+          output_format: 'mp3_44100_128',
+          voice_settings: {
+            stability: 0.35,
+            similarity_boost: 0.85,
+            style: 0.25,
+            use_speaker_boost: true,
+            speed: 1.05
+          }
+        }),
+        signal: controller.signal
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(
+        'ElevenLabs HTTP ' +
+          response.status +
+          (errorBody ? ': ' + errorBody.slice(0, 300) : '')
+      );
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendNeroVoice(sock, jid, text) {
+  if (!NERO_VOICE_ENABLED) return null;
+
+  try {
+    const audio = await generateNeroVoiceAudio(text);
+    if (!audio?.length) return null;
+
+    const sent = await sock.sendMessage(jid, {
+      audio,
+      mimetype: 'audio/mpeg',
+      ptt: true
+    });
+
+    if (sent?.key?.id) {
+      botSentMessageIds.add(sent.key.id);
+      setTimeout(() => botSentMessageIds.delete(sent.key.id), 5 * 60 * 1000);
+    }
+
+    return sent;
+  } catch (error) {
+    console.error('[NERO TTS] Failed:', error?.message || error);
+    return null;
+  }
+}
 const neroPresence = new NeroPresence();
 const RESPOND_TO_ALL_GROUP_MESSAGES =
   process.env.RESPOND_TO_ALL_GROUP_MESSAGES === 'true';
@@ -10374,6 +10467,13 @@ const masterMentioned = mentionedJids.some(jid =>
           jid,
           { text: reply },
           { quoted: message }
+        );
+
+        // Voice is optional; text remains authoritative if TTS fails.
+        await sendNeroVoice(
+          sock,
+          jid,
+          reply
         );
 
         if (sentMessage?.key?.id) {
