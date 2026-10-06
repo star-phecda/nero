@@ -622,8 +622,7 @@ function extractNvidiaReply(message) {
 
         return '';
       })
-      .join('
-')
+      .join('\n')
       .trim();
   }
 
@@ -4524,8 +4523,7 @@ async function buildPrompt(
       : personHistory.slice(-(phase4.expandHistory ? 40 : 12));
   const recent = history
     .map(x => x.sender + ': ' + x.text)
-    .join('
-')
+    .join('\n')
     .slice(-4500);
 
   const memoryAssembly =
