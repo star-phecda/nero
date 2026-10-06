@@ -9138,7 +9138,7 @@ async function startNero() {
         await sendNeroControlMessage(
           sock,
           jid,
-          'Voice is disabled in Nero\\'s server configuration.'
+          'Voice is disabled in Nero\'s server configuration.'
         );
         continue;
       }
@@ -9176,7 +9176,7 @@ async function startNero() {
       )
     ) {
       if (!NERO_VOICE_ENABLED) {
-        await sendNeroControlMessage(sock, jid, 'Voice is disabled in Nero\\'s server configuration.');
+        await sendNeroControlMessage(sock, jid, 'Voice is disabled in Nero\'s server configuration.');
         continue;
       }
       setNeroVoiceEnabled(jid, true);
