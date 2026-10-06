@@ -529,7 +529,8 @@ function extractNvidiaReply(message) {
 
         return '';
       })
-      .join('')
+      .join('
+')
       .trim();
   }
 
