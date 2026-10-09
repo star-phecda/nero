@@ -21,6 +21,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import { extractNeroQuotedMessage } from './src/core/neroQuotedMessage.js';
+import { parseNeroContactCommand, parseNeroNamedDmCommand } from './src/core/neroContactCommands.js';
 
 import qrcode from 'qrcode-terminal';
 import P from 'pino';
@@ -35,7 +36,7 @@ import { NeroContextAssembler } from './src/core/neroContextAssembler.js';
 import { NeroVerifier } from './src/core/neroVerifier.js';
 import { NeroDelegator } from './src/core/neroDelegator.js';
 import { NeroPresence } from './src/core/neroPresence.js';
-import { NeroIdentityService, normalizeNeroIdentityId } from './src/core/neroIdentity.js';
+import { NeroIdentityService, normalizeNeroIdentityId, normalizeNeroContactIdentifier } from './src/core/neroIdentity.js';
 import { buildNeroPlotShareRecipients } from './src/core/neroPlotSharing.js';
 import {
   buildNeroSocialActionInstructions,
@@ -966,7 +967,10 @@ const neroDelegator = new NeroDelegator();
 function getNeroGroupMemoryScope(jid) { return jid ? 'group:' + jid : 'master'; }
 function getNeroPersonMemoryScope(personId) {
   const normalized = normalizeNeroIdentityId(personId);
-  return normalized ? 'person:' + normalized : '';
+  if (!normalized) return '';
+  const profile = neroIdentity.getProfile(normalized);
+  const canonicalId = profile && profile.role !== 'master' ? profile.id : normalized;
+  return 'person:' + canonicalId;
 }
 function getNeroMemoryScopes(jid, identity) {
   const scopes = [];
@@ -1150,7 +1154,6 @@ async function resolveNeroPlotTargets(sock, rawTargets) {
     return { targets: [], failures: ['No target people were provided.'] };
   }
 
-  const profiles = neroIdentity.getProfiles();
   let participatingGroups = null;
   const targets = [];
   const failures = [];
@@ -1164,8 +1167,9 @@ async function resolveNeroPlotTargets(sock, rawTargets) {
         failures.push('Could not resolve the phone number "' + request + '".');
         continue;
       }
-      const profile = profiles.find(item => normalizeNeroIdentityId(item.id) === id);
-      targets.push({ id, displayName: profile?.displayName || request });
+      const profile = neroIdentity.getProfile(id);
+      const canonicalId = profile && profile.role !== 'master' ? profile.id : id;
+      targets.push({ id: canonicalId, displayName: profile?.displayName || request });
       continue;
     }
     failures.push('People must be identified by phone number, not display name: "' + request + '".');
@@ -8043,17 +8047,16 @@ function normalizeNeroDmTarget(value) {
     .trim()
     .replace(/^tel:/i, '');
 
-  if (!raw || /@g\.us$/i.test(raw)) {
-    return null;
-  }
+  if (!raw || /@g\.us$/i.test(raw)) return null;
 
   const phone = normalizeNeroPhone(raw);
+  if (/^\d{10,15}$/.test(phone)) return phone + '@s.whatsapp.net';
 
-  if (!/^\d{10,15}$/.test(phone)) {
-    return null;
-  }
-
-  return phone + '@s.whatsapp.net';
+  // A saved name is usable only when it maps to one confirmed contact.
+  const matches = neroIdentity.findContactsByName(raw);
+  if (matches.length !== 1) return null;
+  return [matches[0].id, ...(matches[0].aliases || [])]
+    .find(id => /@s\.whatsapp\.net$/i.test(id)) || null;
 }
 
 function normalizeNeroGroupName(value) {
@@ -9244,7 +9247,7 @@ async function startNero() {
               ? NERO_DAWN_PHONE_CANONICAL
               : (senderIdentityCandidates.find(Boolean) || '');
 
-        const sender =
+        let sender =
           isMasterMessage
             ? 'Master'
             : dawnMessage
@@ -9264,8 +9267,13 @@ async function startNero() {
           chatId: jid,
           senderId,
           senderName: sender,
-          role: isMasterMessage ? 'master' : dawnMessage ? 'dawn' : 'person'
+          role: isMasterMessage ? 'master' : dawnMessage ? 'dawn' : 'person',
+          aliases: senderIdentityCandidates.filter(candidate =>
+            !candidate.endsWith('@g.us') && candidate !== jid
+          )
         });
+        // Confirmed local contact names take precedence over mutable WhatsApp profile names.
+        sender = senderIdentity.displayName;
 
         // Persist live group messages for on-demand recaps.
         addNeroGroupHistoryMessage(
@@ -9274,7 +9282,7 @@ async function startNero() {
           sender,
           text,
           messageTimestamp,
-          senderId
+          senderIdentity.personId
         );
 
         const normalizedContent =
@@ -9700,6 +9708,10 @@ async function startNero() {
               };
             }
 
+            // Named-contact DMs require clear target/message separation.
+            const namedContactDm = parseNeroNamedDmCommand(body);
+            if (namedContactDm) return namedContactDm;
+
             // Explicit form:
             // Nero dm <phone> <instruction>
             match =
@@ -9754,6 +9766,7 @@ async function startNero() {
           if (dmRequest) {
             let targetJid = null;
             let targetLabel = '';
+            let contactObservationName = '';
 
             if (dmRequest.groupName) {
               const group =
@@ -9781,10 +9794,14 @@ async function startNero() {
                   dmRequest.target
                 );
 
-              targetLabel =
-                targetJid
-                  ? '+' + targetJid.split('@')[0]
-                  : '';
+              const matchedContact = targetJid ? neroIdentity.getContact(targetJid) : null;
+              const targetLooksLikePhone = /^[+\d().\s-]+$/.test(dmRequest.target || '');
+              targetLabel = targetJid
+                ? (matchedContact?.nameConfirmed
+                    ? matchedContact.displayName
+                    : matchedContact?.suggestedName || (!targetLooksLikePhone ? dmRequest.target.trim() : '+' + targetJid.split('@')[0]))
+                : '';
+              contactObservationName = targetLooksLikePhone ? '' : String(dmRequest.target || '').trim();
             }
 
             const instruction =
@@ -9798,7 +9815,7 @@ async function startNero() {
                 jid,
                 dmRequest.groupName
                   ? 'I could not resolve that group.'
-                  : 'That does not look like a valid WhatsApp phone number.'
+                  : 'I could not resolve that to a valid WhatsApp phone number or one unique confirmed contact name. Use !nero contact list or provide the phone number.'
               );
               continue;
             }
@@ -9877,6 +9894,15 @@ async function startNero() {
                 targetJid
               ).catch(() => {});
 
+              if (!dmRequest.groupName && targetJid) {
+                // Persist the recipient only after WhatsApp accepted the outbound DM.
+                neroIdentity.observeContact(
+                  targetJid,
+                  contactObservationName,
+                  { chatId: targetJid }
+                );
+              }
+
               if (sentMessage?.key?.id) {
                 botSentMessageIds.add(
                   sentMessage.key.id
@@ -9944,6 +9970,97 @@ async function startNero() {
 
         // Master and Lord Dawn share Nero's control privileges.
         if (isNeroPrivilegedMessage) {
+          const contactCommand = parseNeroContactCommand(text);
+          if (contactCommand) {
+            if (jid.endsWith('@g.us')) {
+              await sendNeroControlMessage(sock, jid, 'Contact management is private. Send that command to me in a direct chat.');
+              continue;
+            }
+
+            if (contactCommand.action === 'help') {
+              await sendNeroControlMessage(sock, jid,
+                'Contact identity commands\n\n' +
+                '!nero contact name 2348012345678 as Roy\n' +
+                '!nero contact show 2348012345678\n' +
+                '!nero contact list\n' +
+                '!nero contact forget 2348012345678\n\n' +
+                'Names you set are confirmed. WhatsApp profile names remain suggestions until you confirm them. Unique saved names can also be used as DM targets, e.g. !nero dm Roy: Are you coming?');
+              continue;
+            }
+
+            if (contactCommand.action === 'invalid') {
+              await sendNeroControlMessage(sock, jid, 'Use !nero contact help to see the supported commands.');
+              continue;
+            }
+
+            const targetId = contactCommand.target
+              ? normalizeNeroContactIdentifier(contactCommand.target)
+              : '';
+            const protectedTargets = [
+              NERO_MASTER_PHONE,
+              NERO_DAWN_PHONE_CANONICAL,
+              sock.user?.id,
+              sock.user?.lid,
+              sock.user?.phoneNumber
+            ].filter(Boolean).map(normalizeNeroIdentityId);
+            if (contactCommand.target && (!targetId || protectedTargets.includes(targetId))) {
+              await sendNeroControlMessage(sock, jid, 'That is not a valid person contact target. Use a WhatsApp phone number (7–15 digits) or a personal WhatsApp JID.');
+              continue;
+            }
+
+            try {
+              if (contactCommand.action === 'name') {
+                const profile = neroIdentity.nameContact(contactCommand.target, contactCommand.name);
+                await sendNeroControlMessage(sock, jid,
+                  'Saved. I will identify ' + profile.displayName + ' by ' + profile.aliases.join(', ') + '.\n' +
+                  'Their confirmed name will survive restarts and WhatsApp profile-name changes.');
+                continue;
+              }
+
+              if (contactCommand.action === 'show') {
+                const profile = neroIdentity.getContact(contactCommand.target);
+                if (!profile) {
+                  await sendNeroControlMessage(sock, jid, 'I have no saved person identity for that number yet. Name them with !nero contact name <number> as <name>.');
+                  continue;
+                }
+                await sendNeroControlMessage(sock, jid,
+                  'Contact identity\nName: ' + profile.displayName + (profile.nameConfirmed ? ' (confirmed)' : ' (unconfirmed)') +
+                  (profile.suggestedName && profile.suggestedName !== profile.displayName ? '\nWhatsApp profile suggestion: ' + profile.suggestedName : '') +
+                  '\nPrimary ID: ' + profile.id + '\nKnown aliases: ' + (profile.aliases || [profile.id]).join(', ') +
+                  '\nChats seen: ' + (profile.chats?.length || 0));
+                continue;
+              }
+
+              if (contactCommand.action === 'list') {
+                const profiles = neroIdentity.listContacts();
+                const lines = profiles.slice(0, 50).map(profile => {
+                  const label = profile.nameConfirmed
+                    ? profile.displayName + ' (confirmed)'
+                    : (profile.suggestedName || profile.displayName || 'Unknown') + ' (unconfirmed)';
+                  const phoneId = [profile.id, ...(profile.aliases || [])].find(id => /@s\.whatsapp\.net$/i.test(id));
+                  return '- ' + label + ' — ' + (phoneId || profile.id);
+                });
+                await sendNeroControlMessage(sock, jid,
+                  'Saved contact identities (' + profiles.length + ')' +
+                  (lines.length ? '\n' + lines.join('\n') : '\n(no contacts yet)') +
+                  (profiles.length > 50 ? '\nShowing the 50 most recently seen. Use contact show for details.' : ''));
+                continue;
+              }
+
+              if (contactCommand.action === 'forget') {
+                const profile = neroIdentity.getContact(contactCommand.target);
+                const removed = neroIdentity.forgetContact(contactCommand.target);
+                await sendNeroControlMessage(sock, jid, removed
+                  ? 'Removed the saved identity for ' + (profile?.displayName || contactCommand.target) + '. Existing memories are not deleted.'
+                  : 'I do not have a saved person identity for that number.');
+                continue;
+              }
+            } catch (error) {
+              await sendNeroControlMessage(sock, jid, 'I could not update that contact: ' + String(error?.message || error));
+              continue;
+            }
+          }
+
           if (/^shush\\s*,?\\s*nero[.!?]*$/i.test(neroCommand)) {
             neroMuted = true;
             continue;
