@@ -1005,9 +1005,9 @@ function getNeroAssignedPlotText(identity) {
     .list({ scope: identity.personScope, type: 'plots' })
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map(entry => String(entry.source || '').startsWith('master-group-plot-share:')
-      ? 'Shared group plot (from ' + (entry.subject || 'a group') + '):\\n' + entry.text
+      ? 'Shared group plot (from ' + (entry.subject || 'a group') + '):\n' + entry.text
       : entry.text)
-    .join('\\n\\n')
+    .join('\n\n')
     .slice(0, 5000);
 }
 
@@ -10181,8 +10181,8 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
               (plotGroupShareMatch
                 ? 'Saved the plot for group ' + group.name + ' and shared it with ' + shareRecipients.length + ' current group members’ private-chat identities.'
                 : 'Saved the plot for group ' + group.name + '. It applies inside that group only.') +
-              '\\n\\nTo inspect it: !nero plot show group ' + group.name +
-              '\\nTo replace it: send another group plot command. To remove it: !nero plot clear group ' + group.name + '.');
+              '\n\nTo inspect it: !nero plot show group ' + group.name +
+              '\nTo replace it: send another group plot command. To remove it: !nero plot clear group ' + group.name + '.');
             continue;
           }
 
