@@ -10214,11 +10214,11 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
           await sendNeroControlMessage(
             sock,
             jid,
-            'Saved the plot for ' + resolution.targets.map(target => target.displayName).join(' and ') +
-              '. It will be loaded when either of them talks to Nero, and it will not be loaded for other people.\n\n' +
-              'To inspect it: !nero plot show ' + resolution.targets.map(target => target.displayName).join(' and ') +
+            'Saved the personal plot for ' + resolution.targets.map(target => target.displayName).join(' and ') +
+              '. It will be loaded when they talk to Nero, and it will not be loaded for other people.\n\n' +
+              'To inspect it: !nero plot show ' + resolution.targets.map(target => target.id.split('@')[0]).join(' and ') +
               '\nTo replace it, send another plot command. To remove it: !nero plot clear ' +
-              resolution.targets.map(target => target.displayName).join(' and ') + '.'
+              resolution.targets.map(target => target.id.split('@')[0]).join(' and ') + '.'
           );
           continue;
         }
