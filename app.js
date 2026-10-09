@@ -9170,6 +9170,7 @@ async function startNero() {
           message.key?.participant,
           message.key?.participantAlt,
           message.participant,
+          message.key?.remoteJidAlt,
           message.key?.remoteJid,
         ]
           .filter(Boolean)
