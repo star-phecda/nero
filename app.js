@@ -45,8 +45,7 @@ const FALLBACK_MODEL =
 
 const BOT_NAME = process.env.BOT_NAME || 'Nero';
 
-const NERO_VOICE_ENABLED =
-  process.env.NERO_VOICE_ENABLED === 'true';
+const NERO_VOICE_ENABLED = false; // Voice TTS paused; Nero stays text-only.
 
 const NERO_VOICE_SETTINGS_FILE =
   process.cwd() + '/nero_voice_settings.json';
@@ -10677,18 +10676,16 @@ const masterMentioned = mentionedJids.some(jid =>
           reply
         );
 
-        const sentMessage = await sock.sendMessage(
-          jid,
-          { text: reply },
-          { quoted: message }
-        );
-
-        // Voice is opt-in per chat; text remains authoritative if TTS fails.
+        // Send exactly one reply modality: use voice only on success, otherwise text.
+        let sentMessage = null;
         if (getNeroVoiceEnabled(jid)) {
-          await sendNeroVoice(
-            sock,
+          sentMessage = await sendNeroVoice(sock, jid, reply);
+        }
+        if (!sentMessage) {
+          sentMessage = await sock.sendMessage(
             jid,
-            reply
+            { text: reply },
+            { quoted: message }
           );
         }
 

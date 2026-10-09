@@ -5,7 +5,7 @@ function patchNeroVoice(source) {
   if (start === -1 || end === -1) throw new Error("[NERO VOICE] TTS block not found.");
 
   const voiceBlock =
-"const NERO_VOICE_ENABLED = process.env.NERO_VOICE_ENABLED === 'true';\n" +
+"const NERO_VOICE_ENABLED = false; // Voice TTS paused; Nero stays text-only.\n" +
 "const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || '';\n" +
 "const NERO_VOICE_ID = process.env.NERO_VOICE_ID || '';\n" +
 "const NERO_TTS_MODEL = process.env.NERO_TTS_MODEL || 'eleven_flash_v2_5';\n" +
