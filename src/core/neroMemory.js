@@ -6,7 +6,8 @@ export const NERO_MEMORY_TYPES = Object.freeze([
   'projects',
   'people',
   'preferences',
-  'learned_skills'
+  'learned_skills',
+  'plots'
 ]);
 
 const STOP_WORDS = new Set([
@@ -17,6 +18,16 @@ const STOP_WORDS = new Set([
 
 function cleanText(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function cleanStructuredText(value) {
+  return String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.replace(/[ \t]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function tokens(value) {
@@ -131,12 +142,13 @@ export class NeroMemoryService {
 
   #normalizeEntry(entry) {
     if (!entry || typeof entry !== 'object') return null;
-    const text = cleanText(entry.text);
-    if (!text) return null;
-
     const type = NERO_MEMORY_TYPES.includes(entry.type)
       ? entry.type
       : 'facts';
+    const text = type === 'plots'
+      ? cleanStructuredText(entry.text)
+      : cleanText(entry.text);
+    if (!text) return null;
 
     const createdAt = Number(entry.createdAt) || this.clock();
     const updatedAt = Number(entry.updatedAt) || createdAt;
@@ -165,13 +177,15 @@ export class NeroMemoryService {
   }
 
   #makeEntry(text, metadata = {}) {
-    const clean = cleanText(text);
-    if (!clean) return null;
-
-    const timestamp = this.clock();
     const type = NERO_MEMORY_TYPES.includes(metadata.type)
       ? metadata.type
       : 'facts';
+    const clean = type === 'plots'
+      ? cleanStructuredText(text)
+      : cleanText(text);
+    if (!clean) return null;
+
+    const timestamp = this.clock();
 
     return {
       id: stableId({
@@ -275,6 +289,17 @@ export class NeroMemoryService {
   clearScope(scope) {
     const before = this.memories.length;
     this.memories = this.memories.filter(entry => entry.scope !== scope);
+    const removed = before - this.memories.length;
+    if (removed) this.save();
+    return removed;
+  }
+
+  clearTypeScope(scope, type) {
+    if (!String(scope || '').trim() || !NERO_MEMORY_TYPES.includes(type)) return 0;
+    const before = this.memories.length;
+    this.memories = this.memories.filter(entry =>
+      entry.scope !== scope || entry.type !== type
+    );
     const removed = before - this.memories.length;
     if (removed) this.save();
     return removed;
