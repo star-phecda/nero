@@ -26,6 +26,10 @@ import P from 'pino';
 import { GoogleGenAI } from '@google/genai';
 import { NeroRuntime } from './src/core/neroRuntime.js';
 import { NeroMemoryService } from './src/core/neroMemory.js';
+import {
+  loadNeroConversationHistory,
+  saveNeroConversationHistory
+} from './src/core/neroConversationHistoryStore.js';
 import { NeroContextAssembler } from './src/core/neroContextAssembler.js';
 import { NeroVerifier } from './src/core/neroVerifier.js';
 import { NeroDelegator } from './src/core/neroDelegator.js';
@@ -257,7 +261,15 @@ const gemini = new GoogleGenAI({
 });
 
 const logger = P({ level: 'silent' });
-const conversations = new Map();
+const NERO_CONVERSATION_HISTORY_FILE = process.cwd() + '/nero_conversation_history.json';
+const neroConversationHistory = loadNeroConversationHistory(NERO_CONVERSATION_HISTORY_FILE);
+const conversations = neroConversationHistory.conversations;
+const personConversations = neroConversationHistory.personConversations;
+
+function persistNeroConversationHistory() {
+  saveNeroConversationHistory(NERO_CONVERSATION_HISTORY_FILE, neroConversationHistory);
+}
+
 const lastResponseTime = new Map();
 const processedMessageIds = new Set();
 let neroConnectionStartTime = 0;
@@ -4226,8 +4238,6 @@ async function downloadNeroMedia(media) {
   return Buffer.concat(chunks);
 }
 
-const personConversations = new Map();
-
 function getNeroPersonConversationKey(jid, personId) {
   const chatKey = normalizeNeroIdentityId(jid) || String(jid || '').trim();
   const personKey = normalizeNeroIdentityId(personId) || String(personId || '').trim();
@@ -4257,10 +4267,14 @@ function addToHistory(jid, sender, text, metadata = {}) {
   while (history.length > contextLimit) history.shift();
 
   const personId = normalizeNeroIdentityId(metadata.personId || '');
-  if (!personId) return;
-  const personHistory = getNeroPersonConversationHistory(jid, personId);
-  personHistory.push({ ...entry, chatId: jid });
-  while (personHistory.length > contextLimit) personHistory.shift();
+  if (personId) {
+    const personHistory = getNeroPersonConversationHistory(jid, personId);
+    personHistory.push({ ...entry, chatId: jid });
+    while (personHistory.length > contextLimit) personHistory.shift();
+  }
+
+  // Keep recent conversation context across Nero restarts.
+  persistNeroConversationHistory();
 }
 
 
