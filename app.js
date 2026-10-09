@@ -35,6 +35,7 @@ import { NeroVerifier } from './src/core/neroVerifier.js';
 import { NeroDelegator } from './src/core/neroDelegator.js';
 import { NeroPresence } from './src/core/neroPresence.js';
 import { NeroIdentityService, normalizeNeroIdentityId } from './src/core/neroIdentity.js';
+import { buildNeroPlotShareRecipients } from './src/core/neroPlotSharing.js';
 import {
   buildNeroSocialActionInstructions,
   getNeroSocialActionGuard,
@@ -997,14 +998,16 @@ function formatNeroMemoryForPrompt(jid, query = '', identity = null) {
 
 
 function getNeroAssignedPlotText(identity) {
-  if (identity?.role !== 'person' || !identity?.personScope) return '';
+  // Dawn also has a person-scoped memory namespace. Explicitly shared plots
+  // should apply to her as a group member, not only to ordinary person roles.
+  if (!['person', 'dawn'].includes(identity?.role) || !identity?.personScope) return '';
   return neroMemory
     .list({ scope: identity.personScope, type: 'plots' })
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map(entry => String(entry.source || '').startsWith('master-group-plot-share:')
-      ? 'Shared group plot (from ' + (entry.subject || 'a group') + '):\n' + entry.text
+      ? 'Shared group plot (from ' + (entry.subject || 'a group') + '):\\n' + entry.text
       : entry.text)
-    .join('\n\n')
+    .join('\\n\\n')
     .slice(0, 5000);
 }
 
@@ -10108,6 +10111,36 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
               continue;
             }
 
+            let shareRecipients = [];
+            if (plotGroupShareMatch) {
+              let roster = [];
+              try {
+                const metadata = await sock.groupMetadata(group.jid);
+                roster = metadata?.participants || [];
+              } catch (error) {
+                console.error('[NERO PLOT SHARE] Could not fetch group participants:', error?.message || error);
+                await sendNeroControlMessage(sock, jid, 'I could not retrieve the current members of ' + group.name + ', so I changed nothing. Try the share command again.');
+                continue;
+              }
+
+              const excludedIds = [
+                NERO_MASTER_PHONE,
+                sock.user?.id,
+                sock.user?.lid,
+                sock.user?.phoneNumber
+              ].filter(Boolean);
+              shareRecipients = buildNeroPlotShareRecipients(
+                roster,
+                normalizeNeroIdentityId,
+                excludedIds
+              );
+
+              if (!shareRecipients.length) {
+                await sendNeroControlMessage(sock, jid, 'I found no shareable member identities in ' + group.name + ', so I changed nothing. Nero could not safely match the group roster to private-chat identities.');
+                continue;
+              }
+            }
+
             neroMemory.clearTypeScope(groupScope, 'plots');
             clearNeroSharedGroupPlots(group.jid);
             neroMemory.add(plotText, {
@@ -10121,34 +10154,35 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
             });
 
             if (plotGroupShareMatch) {
-              let roster = [];
-              try {
-                const metadata = await sock.groupMetadata(group.jid);
-                roster = metadata?.participants || [];
-              } catch {}
-              const masterPhone = normalizeNeroIdentityId(process.env.NERO_MASTER_PHONE || '');
-              const memberIds = [...new Set(roster.map(member =>
-                normalizeNeroIdentityId(member?.phoneNumber || member?.id || member?.lid || '')
-              ).filter(id => id && id !== masterPhone))];
-              for (const memberId of memberIds) {
-                neroMemory.add(plotText, {
-                  type: 'plots',
-                  scope: getNeroPersonMemoryScope(memberId),
-                  subject: group.name,
-                  tags: ['plot', 'story', 'shared-group', group.jid],
-                  importance: 0.95,
-                  confidence: 1,
-                  source: 'master-group-plot-share:' + group.jid
-                });
+              const source = 'master-group-plot-share:' + group.jid;
+              let savedAliases = 0;
+              for (const recipient of shareRecipients) {
+                for (const memberId of recipient.ids) {
+                  const saved = neroMemory.add(plotText, {
+                    type: 'plots',
+                    scope: getNeroPersonMemoryScope(memberId),
+                    subject: group.name,
+                    tags: ['plot', 'story', 'shared-group', group.jid],
+                    importance: 0.95,
+                    confidence: 1,
+                    source
+                  });
+                  if (saved) savedAliases += 1;
+                }
               }
+              console.log(
+                '[NERO PLOT SHARE] group=' + group.jid +
+                ' members=' + shareRecipients.length +
+                ' aliases=' + savedAliases
+              );
             }
 
             await sendNeroControlMessage(sock, jid,
               (plotGroupShareMatch
-                ? 'Saved the plot for group ' + group.name + ' and explicitly shared it with current members’ private chats.'
+                ? 'Saved the plot for group ' + group.name + ' and shared it with ' + shareRecipients.length + ' current group members’ private-chat identities.'
                 : 'Saved the plot for group ' + group.name + '. It applies inside that group only.') +
-              '\n\nTo inspect it: !nero plot show group ' + group.name +
-              '\nTo replace it: send another group plot command. To remove it: !nero plot clear group ' + group.name + '.');
+              '\\n\\nTo inspect it: !nero plot show group ' + group.name +
+              '\\nTo replace it: send another group plot command. To remove it: !nero plot clear group ' + group.name + '.');
             continue;
           }
 

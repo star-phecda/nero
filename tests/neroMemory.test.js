@@ -66,3 +66,21 @@ test('clearWhere removes only matching shared plot entries', () => {
   });
 });
 
+test('plot source metadata can distinguish personal and group-shared copies', () => {
+  withMemory(filePath => {
+    const memory = new NeroMemoryService({ filePath });
+    const scope = 'person:2348000000000@s.whatsapp.net';
+    memory.add('One story.', { type: 'plots', scope, source: 'master-person-plot' });
+    memory.add('One story.', { type: 'plots', scope, source: 'master-group-plot-share:120363000000000000@g.us' });
+
+    assert.equal(memory.list({ scope, type: 'plots' }).length, 2);
+    assert.equal(
+      memory.clearWhere(entry => entry.type === 'plots' && entry.source === 'master-group-plot-share:120363000000000000@g.us'),
+      1
+    );
+    const remaining = memory.list({ scope, type: 'plots' });
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].source, 'master-person-plot');
+  });
+});
+

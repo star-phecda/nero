@@ -223,7 +223,10 @@ export class NeroMemoryService {
       existing.status === 'active' &&
       existing.type === entry.type &&
       existing.scope === entry.scope &&
-      canonical(existing.text) === canonical(entry.text)
+      canonical(existing.text) === canonical(entry.text) &&
+      // Personal and group-shared plot assignments can have identical text
+      // but must remain independently manageable.
+      (entry.type !== 'plots' || existing.source === entry.source)
     );
 
     if (duplicate) {
