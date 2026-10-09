@@ -39,3 +39,30 @@ test('clearing plot memory does not clear facts in the same person scope', () =>
     assert.equal(memory.list({ scope: 'person:2348000000000@s.whatsapp.net', type: 'facts' }).length, 1);
   });
 });
+
+test('clearWhere removes only matching shared plot entries', () => {
+  withMemory(filePath => {
+    const memory = new NeroMemoryService({ filePath });
+    memory.add('Personal story.', {
+      type: 'plots',
+      scope: 'person:2348000000000@s.whatsapp.net',
+      source: 'master-person-plot'
+    });
+    memory.add('Shared group story.', {
+      type: 'plots',
+      scope: 'person:2348000000000@s.whatsapp.net',
+      source: 'master-group-plot-share:120363000000000000@g.us'
+    });
+
+    assert.equal(
+      memory.clearWhere(entry => entry.source === 'master-group-plot-share:120363000000000000@g.us'),
+      1
+    );
+    const remaining = memory.list({
+      scope: 'person:2348000000000@s.whatsapp.net',
+      type: 'plots'
+    });
+    assert.deepEqual(remaining.map(entry => entry.text), ['Personal story.']);
+  });
+});
+

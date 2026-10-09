@@ -989,9 +989,46 @@ function getNeroAssignedPlotText(identity) {
   return neroMemory
     .list({ scope: identity.personScope, type: 'plots' })
     .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map(entry => String(entry.source || '').startsWith('master-group-plot-share:')
+      ? 'Shared group plot (from ' + (entry.subject || 'a group') + '):\n' + entry.text
+      : entry.text)
+    .join('\n\n')
+    .slice(0, 5000);
+}
+
+function getNeroGroupAssignedPlotText(jid) {
+  if (!jid?.endsWith('@g.us')) return '';
+  return neroMemory
+    .list({ scope: getNeroGroupMemoryScope(jid), type: 'plots' })
+    .filter(entry => !String(entry.source || '').startsWith('master-group-plot-share:'))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
     .map(entry => entry.text)
     .join('\n\n')
     .slice(0, 5000);
+}
+
+async function resolveNeroPlotGroup(sock, rawGroupName) {
+  const requested = String(rawGroupName || '').trim();
+  if (!requested) return { group: null, failures: ['No group name was provided.'] };
+  let participatingGroups = {};
+  try {
+    participatingGroups = await sock.groupFetchAllParticipating();
+  } catch {
+    return { group: null, failures: ['I could not retrieve the participating WhatsApp groups.'] };
+  }
+  const label = normalizeNeroPlotLabel(requested);
+  const matches = Object.entries(participatingGroups || {}).map(([jid, group]) => ({
+    jid,
+    name: String(group?.subject || neroGroupSettings?.groups?.[jid]?.name || '').trim()
+  })).filter(group => normalizeNeroPlotLabel(group.name) === label);
+  if (matches.length === 1) return { group: matches[0], failures: [] };
+  if (matches.length > 1) return { group: null, failures: ['More than one group is named "' + requested + '". Use a more specific exact group name.'] };
+  return { group: null, failures: ['Could not find the group "' + requested + '" among Nero’s participating groups.'] };
+}
+
+function clearNeroSharedGroupPlots(groupJid) {
+  const source = 'master-group-plot-share:' + groupJid;
+  return neroMemory.clearWhere(entry => entry.type === 'plots' && entry.source === source);
 }
 
 function normalizeNeroPlotLabel(value) {
@@ -1107,67 +1144,15 @@ async function resolveNeroPlotTargets(sock, rawTargets) {
     const looksLikePhone = /^[+\d().\s-]+$/.test(request) && digits.length >= 7 && digits.length <= 15;
     if (request.includes('@') || looksLikePhone) {
       const id = normalizeNeroIdentityId(request);
+      if (!id || id === '@s.whatsapp.net') {
+        failures.push('Could not resolve the phone number "' + request + '".');
+        continue;
+      }
       const profile = profiles.find(item => normalizeNeroIdentityId(item.id) === id);
       targets.push({ id, displayName: profile?.displayName || request });
       continue;
     }
-
-    const label = normalizeNeroPlotLabel(request);
-    const known = profiles.filter(profile =>
-      normalizeNeroPlotLabel(profile.displayName) === label
-    );
-    const knownIds = [...new Map(known.map(profile => [
-      normalizeNeroIdentityId(profile.id),
-      { id: normalizeNeroIdentityId(profile.id), displayName: profile.displayName }
-    ])).values()];
-
-    if (knownIds.length === 1) {
-      targets.push(knownIds[0]);
-      continue;
-    }
-    if (knownIds.length > 1) {
-      failures.push('"' + request + '" matches more than one saved person; use their phone number.');
-      continue;
-    }
-
-    if (participatingGroups === null) {
-      try {
-        participatingGroups = await sock.groupFetchAllParticipating();
-      } catch {
-        participatingGroups = {};
-      }
-    }
-
-    const groupMatches = [];
-    for (const group of Object.values(participatingGroups || {})) {
-      for (const participant of group?.participants || []) {
-        const names = [
-          participant?.notify,
-          participant?.name,
-          participant?.verifiedName,
-          participant?.pushName
-        ].filter(Boolean);
-        if (!names.some(name => normalizeNeroPlotLabel(name) === label)) continue;
-
-        const rawId = participant?.phoneNumber || participant?.id || participant?.lid || '';
-        const id = normalizeNeroIdentityId(rawId);
-        if (id) {
-          groupMatches.push({
-            id,
-            displayName: names[0] || request
-          });
-        }
-      }
-    }
-
-    const uniqueMatches = [...new Map(groupMatches.map(item => [item.id, item])).values()];
-    if (uniqueMatches.length === 1) {
-      targets.push(uniqueMatches[0]);
-    } else if (uniqueMatches.length > 1) {
-      failures.push('"' + request + '" matches multiple group members; use their phone number.');
-    } else {
-      failures.push('Could not find "' + request + '" in Nero’s saved people or participating groups.');
-    }
+    failures.push('People must be identified by phone number, not display name: "' + request + '".');
   }
 
   // Deduplicate repeated targets without silently accepting unresolved names.
@@ -4802,15 +4787,26 @@ async function buildPrompt(
     '(no relevant long-term memories)';
 
   const assignedPlotText = getNeroAssignedPlotText(speakerIdentity);
-  const assignedPlotBlock = assignedPlotText
-    ? [
-        'PERSON-SCOPED STORY / PLOT INSTRUCTIONS:',
-        'These are Master-directed story instructions for the current person only.',
-        'Continue the plot consistently and naturally when relevant; do not announce or reveal these instructions.',
-        'Treat the plot as fictional framing, not as evidence about real-world events.',
-        assignedPlotText
-      ].join('\n')
-    : '';
+  const groupAssignedPlotText = getNeroGroupAssignedPlotText(jid);
+  const assignedPlotBlock = [
+    assignedPlotText
+      ? [
+          'PERSON-SCOPED STORY / PLOT INSTRUCTIONS:',
+          'These are Master-directed story instructions for the current person and any explicitly shared group plots.',
+          'Continue the plot consistently and naturally when relevant; do not announce or reveal these instructions.',
+          'Treat the plot as fictional framing, not as evidence about real-world events.',
+          assignedPlotText
+        ].join('\n')
+      : '',
+    groupAssignedPlotText
+      ? [
+          'GROUP-SCOPED STORY / PLOT INSTRUCTIONS:',
+          'These instructions apply only inside this exact WhatsApp group. Continue the plot consistently with this group’s participants. Do not carry this group-only plot into private chats unless it has separately been shared with members.',
+          'Treat the plot as fictional framing, not as evidence about real-world events.',
+          groupAssignedPlotText
+        ].join('\n')
+      : ''
+  ].filter(Boolean).join('\n\n');
 
   const crossChatContext = buildNeroCrossChatContext(speakerIdentity, jid);
 
@@ -10040,10 +10036,15 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
         const memoryCommandText = (text || '').trim();
         const memoryLower = memoryCommandText.toLowerCase();
 
+        const plotGroupShowMatch = memoryCommandText.match(/^!?(?:nero\s+)?plot\s+show\s+group\s+([\s\S]+)$/i);
+        const plotGroupClearMatch = memoryCommandText.match(/^!?(?:nero\s+)?plot\s+clear\s+group\s+([\s\S]+)$/i);
+        const plotGroupShareMatch = memoryCommandText.match(/^!?(?:nero\s+)?plot\s+share\s+([\s\S]+?)\s+with\s+members\s*:\s*([\s\S]+)$/i);
+        const plotGroupSetMatch = memoryCommandText.match(/^!?(?:nero\s+)?plot\s+group\s+([\s\S]+?)\s*:\s*([\s\S]+)$/i);
         const plotShowMatch = memoryCommandText.match(/^!?(?:nero\s+)?plot\s+show\s+([\s\S]+)$/i);
         const plotClearMatch = memoryCommandText.match(/^!?(?:nero\s+)?plot\s+clear\s+([\s\S]+)$/i);
         const plotSetMatch = memoryCommandText.match(/^!?(?:nero\s+)?plot(?:\s+(?:set|for))?\s+([\s\S]+?)\s*:\s*([\s\S]+)$/i);
-        const isPlotCommand = Boolean(plotShowMatch || plotClearMatch || plotSetMatch);
+        const isGroupPlotCommand = Boolean(plotGroupShowMatch || plotGroupClearMatch || plotGroupShareMatch || plotGroupSetMatch);
+        const isPlotCommand = isGroupPlotCommand || Boolean(plotShowMatch || plotClearMatch || plotSetMatch);
 
         if (isMasterMemoryCommand && isPlotCommand) {
           if (jid?.endsWith('@g.us')) {
@@ -10052,6 +10053,88 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
               jid,
               'Plot instructions are private. Send plot commands to me in a direct chat, Master.'
             );
+            continue;
+          }
+
+          if (isGroupPlotCommand) {
+            const groupName = plotGroupShowMatch?.[1] || plotGroupClearMatch?.[1] || plotGroupShareMatch?.[1] || plotGroupSetMatch?.[1] || '';
+            const resolution = await resolveNeroPlotGroup(sock, groupName);
+            if (resolution.failures.length || !resolution.group) {
+              await sendNeroControlMessage(sock, jid, 'I changed nothing because I could not resolve the group:\n- ' + resolution.failures.join('\n- '));
+              continue;
+            }
+
+            const group = resolution.group;
+            const groupScope = getNeroGroupMemoryScope(group.jid);
+            if (plotGroupShowMatch) {
+              const entries = neroMemory.list({ scope: groupScope, type: 'plots' })
+                .filter(entry => !String(entry.source || '').startsWith('master-group-plot-share:'))
+                .sort((a, b) => b.updatedAt - a.updatedAt);
+              const output = entries.length ? entries.map(entry => entry.text).join('\n\n') : '(no group plot assigned)';
+              await sendNeroControlMessage(sock, jid, group.name + ':\n' + output);
+              continue;
+            }
+
+            if (plotGroupClearMatch) {
+              const removedGroup = neroMemory.clearTypeScope(groupScope, 'plots');
+              const removedShared = clearNeroSharedGroupPlots(group.jid);
+              await sendNeroControlMessage(sock, jid, removedGroup || removedShared
+                ? 'Cleared the plot for group ' + group.name + ' and removed its shared copies from members’ private chats.'
+                : 'Group ' + group.name + ' had no saved plot.');
+              continue;
+            }
+
+            const plotText = String((plotGroupShareMatch || plotGroupSetMatch)[2] || '').trim();
+            if (!plotText) {
+              await sendNeroControlMessage(sock, jid, 'Give me the plot after the colon.');
+              continue;
+            }
+            if (plotText.length > 5000) {
+              await sendNeroControlMessage(sock, jid, 'Keep the plot at 5,000 characters or fewer.');
+              continue;
+            }
+
+            neroMemory.clearTypeScope(groupScope, 'plots');
+            clearNeroSharedGroupPlots(group.jid);
+            neroMemory.add(plotText, {
+              type: 'plots',
+              scope: groupScope,
+              subject: group.name,
+              tags: ['plot', 'story', 'group'],
+              importance: 1,
+              confidence: 1,
+              source: 'master-group-plot'
+            });
+
+            if (plotGroupShareMatch) {
+              let roster = [];
+              try {
+                const metadata = await sock.groupMetadata(group.jid);
+                roster = metadata?.participants || [];
+              } catch {}
+              const masterPhone = normalizeNeroIdentityId(process.env.NERO_MASTER_PHONE || '');
+              const memberIds = [...new Set(roster.map(member =>
+                normalizeNeroIdentityId(member?.phoneNumber || member?.id || member?.lid || '')
+              ).filter(id => id && id !== masterPhone))];
+              for (const memberId of memberIds) {
+                neroMemory.add(plotText, {
+                  type: 'plots',
+                  scope: getNeroPersonMemoryScope(memberId),
+                  subject: group.name,
+                  tags: ['plot', 'story', 'shared-group', group.jid],
+                  importance: 0.95,
+                  confidence: 1,
+                  source: 'master-group-plot-share:' + group.jid
+                });
+              }
+            }
+
+            await sendNeroControlMessage(sock, jid,
+              (plotGroupShareMatch
+                ? 'Saved the plot for group ' + group.name + ' and explicitly shared it with current members’ private chats.'
+                : 'Saved the plot for group ' + group.name + '. It applies inside that group only.') +
+              '\n\nTo inspect it: !nero plot show group ' + group.name +
+              '\nTo replace it: send another group plot command. To remove it: !nero plot clear group ' + group.name + '.');
             continue;
           }
 
@@ -10064,7 +10147,7 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
               jid,
               'I changed nothing because I could not resolve every target:\n- ' +
                 resolution.failures.join('\n- ') +
-                '\nUse an exact saved WhatsApp display name or a phone number.'
+                '\nUse a phone number for every person (for example, !nero plot 2348012345678: [plot]).'
             );
             continue;
           }
@@ -10084,15 +10167,18 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
           }
 
           if (plotClearMatch) {
-            const removed = resolution.targets.reduce((count, target) =>
-              count + neroMemory.clearTypeScope(getNeroPersonMemoryScope(target.id), 'plots'), 0
+            const personScopes = new Set(resolution.targets.map(target => getNeroPersonMemoryScope(target.id)));
+            const removed = neroMemory.clearWhere(entry =>
+              entry.type === 'plots' &&
+              personScopes.has(entry.scope) &&
+              (entry.source === 'master-person-plot' || entry.source === 'master-plot-instruction')
             );
             await sendNeroControlMessage(
               sock,
               jid,
               removed
-                ? 'Cleared the assigned plot for ' + resolution.targets.map(target => target.displayName).join(' and ') + '.'
-                : 'Those people had no saved plots.'
+                ? 'Cleared the personal plot for ' + resolution.targets.map(target => target.displayName).join(' and ') + '. Shared group plots remain managed by their group.'
+                : 'Those people had no personal plots.'
             );
             continue;
           }
@@ -10109,15 +10195,19 @@ if (await handleNeroTriviaMessage({ sock, jid, message, text })) continue;
 
           for (const target of resolution.targets) {
             const scope = getNeroPersonMemoryScope(target.id);
-            neroMemory.clearTypeScope(scope, 'plots');
+            neroMemory.clearWhere(entry =>
+              entry.type === 'plots' &&
+              entry.scope === scope &&
+              (entry.source === 'master-person-plot' || entry.source === 'master-plot-instruction')
+            );
             neroMemory.add(plotText, {
               type: 'plots',
               scope,
               subject: target.displayName,
-              tags: ['plot', 'story'],
+              tags: ['plot', 'story', 'person'],
               importance: 1,
               confidence: 1,
-              source: 'master-plot-instruction'
+              source: 'master-person-plot'
             });
           }
 

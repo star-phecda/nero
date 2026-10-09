@@ -305,6 +305,15 @@ export class NeroMemoryService {
     return removed;
   }
 
+  clearWhere(predicate) {
+    if (typeof predicate !== 'function') return 0;
+    const before = this.memories.length;
+    this.memories = this.memories.filter(entry => !predicate(entry));
+    const removed = before - this.memories.length;
+    if (removed) this.save();
+    return removed;
+  }
+
   retrieve(query, {
     scope,
     scopes,
