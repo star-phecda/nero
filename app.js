@@ -123,18 +123,17 @@ async function generateNeroVoiceAudio(text) {
   try {
     const response = await fetch(
       'https://api.elevenlabs.io/v1/text-to-speech/' +
-        encodeURIComponent(NERO_VOICE_ID),
+        encodeURIComponent(NERO_VOICE_ID) + '?output_format=opus_48000_64',
       {
         method: 'POST',
         headers: {
           'xi-api-key': ELEVENLABS_API_KEY,
           'Content-Type': 'application/json',
-          'Accept': 'audio/mpeg'
+          'Accept': 'audio/ogg'
         },
         body: JSON.stringify({
           text: String(text).trim(),
           model_id: NERO_TTS_MODEL,
-          output_format: 'mp3_44100_128',
           voice_settings: {
             stability: 0.35,
             similarity_boost: 0.85,
@@ -156,7 +155,15 @@ async function generateNeroVoiceAudio(text) {
       );
     }
 
-    return Buffer.from(await response.arrayBuffer());
+    const audio = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get('content-type') || 'unknown';
+    if (audio.subarray(0, 4).toString('ascii') === 'OggS') {
+      return { audio, mimetype: 'audio/ogg; codecs=opus', ptt: true };
+    }
+    const isMp3 = audio.subarray(0, 3).toString('ascii') === 'ID3' ||
+      (audio.length > 1 && audio[0] === 0xff && (audio[1] & 0xe0) === 0xe0);
+    if (isMp3) return { audio, mimetype: 'audio/mpeg', ptt: false };
+    throw new Error('ElevenLabs returned unrecognized audio format: ' + contentType);
   } finally {
     clearTimeout(timeout);
   }
@@ -166,13 +173,13 @@ async function sendNeroVoice(sock, jid, text) {
   if (!NERO_VOICE_ENABLED) return null;
 
   try {
-    const audio = await generateNeroVoiceAudio(text);
-    if (!audio?.length) return null;
+    const result = await generateNeroVoiceAudio(text);
+    if (!result?.audio?.length) return null;
 
     const sent = await sock.sendMessage(jid, {
-      audio,
-      mimetype: 'audio/mpeg',
-      ptt: true
+      audio: result.audio,
+      mimetype: result.mimetype,
+      ptt: result.ptt
     });
 
     if (sent?.key?.id) {
