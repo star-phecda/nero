@@ -51,8 +51,7 @@ export function extractNeroQuotedMessage(message, normalizeMessageContent = cont
   const text = [
     quotedText,
     mediaLabel ? '[' + mediaLabel + ' attachment' + (quotedText ? '; caption/text shown above' : '') + ']' : ''
-  ].filter(Boolean).join('
-') || '[quoted message content unavailable]';
+  ].filter(Boolean).join('\n') || '[quoted message content unavailable]';
 
   return {
     text: text.slice(0, 8000),

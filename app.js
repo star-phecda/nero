@@ -1349,7 +1349,7 @@ function neroGameScoreboard(game) {
     .map((player, index) =>
       (index + 1) + '. ' + player.name + ' Ã¢ÂÂ ' + player.score
     )
-    .join('\\n');
+    .join('\n');
 }
 
 function neroGameCurrentPlayer(game) {
@@ -4076,7 +4076,7 @@ async function handleNeroGameMessage({ sock, jid, message, text }) {
           sock,
           jid,
           'Board cleared.\\n\\n' +
-          question.answers.map(a => a.text + ' Ã¢ÂÂ ' + a.points).join('\\n') +
+          question.answers.map(a => a.text + ' Ã¢ÂÂ ' + a.points).join('\n') +
           '\\n\\n' +
           'Say "next" for the next round.'
         );
@@ -8269,10 +8269,10 @@ function buildNeroOutboundDmPrompt(
                 'Title: ' + result.title,
                 'URL: ' + result.url,
                 'Excerpt: ' + result.excerpt
-              ].join('\\n');
+              ].join('\n');
             })
-            .join('\\n\\n')
-        ].join('\\n')
+            .join('\n\n')
+        ].join('\n')
       : '';
 
   return [
@@ -8308,7 +8308,7 @@ function buildNeroOutboundDmPrompt(
     '',
     'SOURCE CONVERSATION:',
     context
-  ].filter(Boolean).join('\\n');
+  ].filter(Boolean).join('\n');
 }
 
 function cleanNeroOutboundDmText(text) {
@@ -8770,7 +8770,7 @@ function buildNeroRecapPrompt(
           item.text
         );
       })
-      .join('\\n');
+      .join('\n');
 
   return (
     'You are Nero, an AI member of a WhatsApp group. ' +
