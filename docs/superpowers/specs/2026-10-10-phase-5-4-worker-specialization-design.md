@@ -50,19 +50,19 @@ If research fails or produces no usable evidence, do not send an empty or fabric
 - A critique record identifies the target claim and issue type; absence of a critique is not proof that a claim is true.
 - Reports uncertainty directly and must not invent counter-evidence.
 
-All workers retain existing side-effect restrictions, bounded output, timeout/cancellation behavior, and no-recursive-delegation policy. The existing structured `summary`, `findings`, and `uncertainties` fields remain supported; new finding metadata is additive and validated during parsing.
+All workers retain existing side-effect restrictions, bounded output, timeout/cancellation behavior, and no-recursive-delegation policy. The existing structured `summary`, `findings`, and `uncertainties` fields remain supported. Each finding retains `claim`, `evidence`, and `confidence`; it may also carry `kind`, `targetClaim`, and `sources` (URLs). Default an omitted `kind` to `claim`. Critic `kind` values are `contradiction`, `unsupported`, `non_sequitur`, `missing_evidence`, or `uncertainty`; parsing must validate/normalize these fields and reject source URLs not present in the supplied researcher evidence.
 
 ## Aggregation contract
 
 Return a structured object with these stable top-level fields:
 
-- `consensus`: claims whose normalized wording is independently present in both researcher evidence and analyst findings, with available support/source attribution.
-- `high_confidence`: consensus claims with analyst confidence of at least `0.8`, source-backed researcher evidence, and no matching critic challenge.
-- `conflicts`: explicit critic challenges, each retaining its target claim, issue type, reasoning/evidence, and provenance where available.
-- `uncertain`: deduplicated uncertainty statements from any completed worker.
-- `sources`: deduplicated source URLs actually present in researcher search results or worker source records.
+- `consensus`: records shaped as `{ claim, evidence, sources, analystConfidence }`, created only when a researcher finding and an analyst finding have the same normalized claim key.
+- `high_confidence`: consensus records with analyst confidence of at least `0.8`, at least one researcher source URL from the supplied search results, and no critic challenge whose normalized `targetClaim` matches the claim.
+- `conflicts`: critic challenge records shaped as `{ targetClaim, kind, evidence, workerId, sources }`, omitting optional source fields when unavailable. These are explicit critique reports, not a guarantee that all factual disagreements between sources have been detected.
+- `uncertain`: deduplicated uncertainty strings from any completed worker, including research gaps or conflicting source reports.
+- `sources`: deduplicated source URLs actually present in researcher search results or validated worker source records.
 
-Claim matching in this phase is deliberately conservative and deterministic (case/whitespace/punctuation-normalized exact matching). It must not claim semantic agreement where the normalized claims do not match. Phase 5.5 may add richer evidence-quality scoring and conflict resolution. A high-confidence label is a structured heuristic, not a guarantee of truth.
+Claim normalization must lowercase text, collapse whitespace, and remove punctuation before exact comparison. Do not stem words, reorder text, or infer semantic equivalence. Researcher findings must carry only URL(s) present in the supplied result packet; analysis/critique may cite only those URLs. Phase 5.5 may add richer evidence-quality scoring and conflict resolution. A high-confidence label is a structured heuristic, not a guarantee of truth.
 
 Retain the current `status`, `text`, `workers`, `budget`, and completion-count fields for compatibility with the existing `app.js` prompt injection and observability. The text summary must faithfully render the structured aggregate without implying certainty beyond its rules.
 
@@ -71,7 +71,7 @@ Retain the current `status`, `text`, `workers`, `budget`, and completion-count f
 - Keep the absolute maximum at three workers.
 - Default `NERO_PHASE5_MAX_WORKERS` to three; continue clamping the environment override to the range 1–3.
 - Honor a lower override. Select roles in the order researcher, analyst, critic, so a cap of one runs research only and a cap of two runs research plus analysis.
-- Enforce one request-wide token budget and one request-wide wall-time deadline across both stages; do not reset the full budget when moving from research to evaluation.
+- Enforce one request-wide output-token reservation budget (the existing budget limits `maxOutputTokens`, not input-token usage) and one request-wide wall-time deadline across both stages; do not reset the full budget when moving from research to evaluation. Reserve each selected worker's maximum output before execution so the sum of reservations cannot exceed `totalTokenBudget`.
 - Share cancellation across the stages. Workers skipped because the budget or deadline is exhausted produce explicit skipped/failure records rather than fabricated findings.
 - Do not raise existing total token/time limits or worker-level maximums as part of 5.4.
 
